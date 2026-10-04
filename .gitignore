@@ -8,6 +8,7 @@ __pycache__/
 portfolio_model/data/cache/
 portfolio_model/data/raw/
 portfolio_model/data/processed/
+portfolio_model/data/input/uploads/
 
 # OS
 .DS_Store

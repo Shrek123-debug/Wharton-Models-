@@ -26,6 +26,7 @@ from .returns.returns import annual_vol_monthly, annualize, simple_returns, to_m
 from .risk.risk import (concentration_report, correlation_clusters, correlation_flags,
                         drawdown_distribution, hhi, recovery_analysis, var_cvar_table)
 from .risk.stoploss import run_stop_backtests
+from .rules.rule_engine import build_rule_flags
 from .sectors.sectors import assign_sector, sector_correlations, sector_table
 from .sensitivity.sensitivity import interpret_grid, run_sensitivity
 from .stress_tests.stress import crisis_test, hypothetical_test
@@ -168,11 +169,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = load_config(config_path)
     if overrides:
-        if "sims" in overrides:
-            cfg["simulation"]["n_simulations"] = overrides["sims"]
-            cfg["bootstrap"]["n_simulations"] = overrides["sims"]
-        if "seed" in overrides:
-            cfg["simulation"]["random_seed"] = overrides["seed"]
+        _apply_overrides(cfg, overrides)
     input_path = input_path or resolve(cfg["input"]["spreadsheet"])
     out_dir = Path(out_dir) if out_dir else PACKAGE_ROOT / "outputs"
     fig_dir = out_dir / "figures"
@@ -354,7 +351,13 @@ def run(input_path: str | None = None, config_path: str | None = None,
         {"method": m, "median_terminal": s["median_terminal"], "p5_terminal": s["terminal_percentiles"]["p5"],
          "prob_depletion": s["prob_capital_depletion"], "prob_payments_funded": s["prob_all_payments_funded"],
          "median_max_dd": s["median_max_drawdown"], "var_95": s["mc_var_95"], "cvar_95": s["mc_cvar_95"]}
-        for m, s in glide_variants.items()])
+         for m, s in glide_variants.items()])
+
+    # 29b. deterministic rule-based risk/rebalancing flags (no AI: thresholds from config)
+    rule_flags = build_rule_flags(cfg, holdings, sec_tbl, conc, corr_flags, mc_sum, bs_sum,
+                                  mk_sum, disagreement_df, confidence, reb_df, sens_interp)
+    log.info("Rule flags: %d triggered (%d high/critical)", len(rule_flags),
+             sum(1 for f in rule_flags if f["severity"] in ("HIGH", "CRITICAL")))
 
     # 30-31. risk discipline + theses
     stop_df = run_stop_backtests(prices, list(holdings["ticker"]),
@@ -467,10 +470,11 @@ def run(input_path: str | None = None, config_path: str | None = None,
     ]
 
     results = {
-        "meta": meta, "holdings": holdings, "port": port, "ctx": ctx,
+        "meta": meta, "cfg": cfg, "holdings": holdings, "port": port, "ctx": ctx,
         "dashboard": dashboard,
         "glide_targets": glide_targets, "params": params, "param_table": param_table,
         "mc": {**{k: v for k, v in mc.items() if k in ("n_sims", "model")}, **mc_sum},
+        "mc_terminal": mc["terminal_2033"], "mc_dd": mc["max_drawdown_growth"],
         "mc_sum": mc_sum, "mk_sum": mk_sum, "bs_sum": bs_sum, "mk": mk, "bs": bs,
         "comparison_sheet": comparison, "disagreement_sheet": disagreement_df,
         "markov_states": markov_states, "markov_P": markov_P, "markov_misc": markov_misc,
@@ -478,6 +482,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "stress_sheet": stress_df, "hypothetical_sheet": hypo_df,
         "glide_sheet": glide_targets.reset_index(), "glide_impact_sheet": glide_impact,
         "rebalance_sheet": reb_df, "thesis_sheet": thesis_df, "scorecard": scorecard,
+        "rule_flags": rule_flags,
         "decision_matrix": _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df),
         "risk_sheet": risk_sheet, "recovery_sheet": recovery_df, "holdings_sheet": holdings_sheet, "history_sheet": history_sheet,
         "mc_sheet": mc_sheet, "mc_percentiles": _percentile_frame(mc_sum), "bs_sheet": bs_sheet,
@@ -522,6 +527,50 @@ def run(input_path: str | None = None, config_path: str | None = None,
 
 
 # ---------------------------------------------------------------- helpers
+def _apply_overrides(cfg: dict, overrides: dict) -> None:
+    """Whitelisted runtime config overrides (used by CLI and the web UI)."""
+    if "sims" in overrides:
+        cfg["simulation"]["n_simulations"] = int(overrides["sims"])
+        cfg["bootstrap"]["n_simulations"] = int(overrides["sims"])
+    if "seed" in overrides:
+        cfg["simulation"]["random_seed"] = int(overrides["seed"])
+    if "model" in overrides:
+        cfg["simulation"]["model"] = str(overrides["model"])
+    if "student_t_dof" in overrides:
+        cfg["simulation"]["student_t_dof"] = int(overrides["student_t_dof"])
+    if "glide_method" in overrides:
+        cfg["glide_path"]["method"] = str(overrides["glide_method"])
+        cfg["glide_path"]["enabled"] = cfg["glide_path"]["method"] != "none"
+    if "glide_end_equity" in overrides:
+        cfg["glide_path"]["end_equity"] = float(overrides["glide_end_equity"])
+    if "rebalancing_enabled" in overrides:
+        cfg["rebalancing"]["enabled"] = bool(overrides["rebalancing_enabled"])
+    if "band" in overrides:
+        cfg["rebalancing"]["band"] = float(overrides["band"])
+    if "transaction_cost" in overrides:
+        cfg["rebalancing"]["transaction_cost"] = float(overrides["transaction_cost"])
+    if "corr_threshold" in overrides:
+        cfg["risk"]["correlation_threshold"] = float(overrides["corr_threshold"])
+    if "max_position" in overrides:
+        cfg["risk"]["max_position_weight"] = float(overrides["max_position"])
+    if "max_sector" in overrides:
+        cfg["risk"]["max_sector_weight"] = float(overrides["max_sector"])
+    if "max_group" in overrides:
+        cfg["risk"]["max_correlated_group_weight"] = float(overrides["max_group"])
+    if "min_cash" in overrides:
+        cfg["risk"]["min_cash_weight"] = float(overrides["min_cash"])
+    if "risk_free_rate" in overrides:
+        cfg["risk"]["risk_free_rate"] = float(overrides["risk_free_rate"])
+    if "inflation_base" in overrides:
+        cfg["risk"]["inflation_base"] = float(overrides["inflation_base"])
+    if "bootstrap_method" in overrides:
+        cfg["bootstrap"]["method"] = str(overrides["bootstrap_method"])
+    if "block_size_days" in overrides:
+        cfg["bootstrap"]["block_size_days"] = int(overrides["block_size_days"])
+    if "sensitivity_sims" in overrides:
+        cfg["sensitivity"]["n_simulations"] = int(overrides["sensitivity_sims"])
+
+
 def _crisis_full(cfg, port, holdings, benchmarks):
     out = []
     for c in cfg["stress_tests"]["crises"]:
@@ -1233,7 +1282,7 @@ def _sanity_checks(results) -> None:
         for s in (results["mc_sum"], results["bs_sum"]):
             assert 0 <= s[key] <= 1, "probabilities out of range"
     assert results["mc_sum"]["mc_cvar_95"] >= results["mc_sum"]["mc_var_95"] - 1e-9, "CVaR must exceed VaR"
-    assert results["mc"]["n_sims"] == results["bs"]["n_sims"] == 10000
+    assert results["mc"]["n_sims"] == results["bs"]["n_sims"] == results["meta"]["n_sims"], "sim counts must match"
     for name in ("holdings_sheet", "comparison_sheet", "risk_sheet", "stress_sheet"):
         df = results[name]
         num = df.select_dtypes(include=[np.number])

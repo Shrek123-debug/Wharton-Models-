@@ -168,6 +168,18 @@ def build_report(path: Path, results: dict) -> Path:
     for line in results["key_risks"]:
         _p(doc, f"- {line}")
 
+    # 19.5 Rule-Based Risk Flags (deterministic)
+    _h(doc, "19.5 Rule-Based Risk & Rebalancing Flags")
+    _p(doc, "Every flag below is produced by an explicit rule with a configured threshold and a calculated value. "
+            "These are rule-based portfolio risk flags, not AI-generated recommendations.", italic=True)
+    rule_flags = results.get("rule_flags", [])
+    if rule_flags:
+        rdf = pd.DataFrame(rule_flags)[["id", "severity", "category", "metric", "current_value",
+                                        "threshold", "rule", "action"]]
+        _table(doc, rdf, max_rows=60)
+    else:
+        _p(doc, "No rule flags triggered for the current configuration.")
+
     # 20 Recommended Actions
     _h(doc, "20. Recommended Actions")
     for prio, items in results["recommendations"].items():

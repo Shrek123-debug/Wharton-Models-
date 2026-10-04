@@ -187,6 +187,19 @@ def build_workbook(path: Path, results: dict) -> Path:
               pct_cols=("current_weight", "target", "lower_band", "upper_band", "suggested_trade", "turnover"))
     _autosize(ws)
 
+    # ---- Sheet 14b: Rule Flags (deterministic, threshold-based)
+    ws = wb.create_sheet("Rule Flags")
+    rule_df = pd.DataFrame(results.get("rule_flags", []))
+    if len(rule_df):
+        rule_df = rule_df[["id", "severity", "category", "metric", "current_value", "threshold",
+                           "rule", "action", "evidence"]]
+        end = _write_df(ws, rule_df, 1, "Rule-Based Risk & Rebalancing Flags (deterministic; thresholds from config)")
+        ws.cell(row=end, column=1,
+                value="These are rule-based portfolio risk flags, not AI-generated recommendations.").font = Font(italic=True, size=9)
+    else:
+        ws.cell(row=1, column=1, value="No rule flags triggered.").font = TITLE_FONT
+    _autosize(ws)
+
     # ---- Sheet 15: Investment Theses
     ws = wb.create_sheet("Investment Theses")
     _write_df(ws, results["thesis_sheet"], 1, "Investment Theses (spec section 53)")

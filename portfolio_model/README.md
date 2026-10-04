@@ -2,13 +2,50 @@
 
 Complete portfolio-analysis and forward-simulation system: ingestion, validation,
 market data, Monte Carlo, Markov regime, and historical-bootstrap engines,
-sensitivity analysis, stress tests, risk metrics, and polished Excel + DOCX reporting.
+sensitivity analysis, stress tests, risk metrics, deterministic rule-based risk
+flags, and polished Excel + DOCX reporting — with a **fully local interactive
+web dashboard**. No LLM / AI API / cloud inference is used anywhere.
 
 ## Quick start
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install numpy pandas scipy yfinance matplotlib openpyxl python-docx pyyaml pytest pyarrow
+python3 -m venv .venv && .venv/bin/pip install numpy pandas scipy yfinance matplotlib openpyxl python-docx pyyaml pytest pyarrow fastapi "uvicorn[standard]" python-multipart
 cd portfolio_model
+```
+
+### Web UI (recommended)
+
+```bash
+../.venv/bin/python run_web.py            # opens http://127.0.0.1:8000
+../.venv/bin/python run_web.py --port 8080
+```
+
+1. Open the dashboard in your browser.
+2. Upload a portfolio `.xlsx` (or press *Run with example portfolio*).
+3. Adjust run options (simulations, seed, MC model, glide method, bands, caps) and press **Run Analysis**.
+4. Explore 14 tabs: Overview, Holdings & Sectors, History, Monte Carlo, Markov Regime,
+   Historical Bootstrap, Model Comparison, Sensitivity, Stress Tests, Risk & Concentration,
+   Rebalance & Glide, Flags & Actions, Data Quality, Methodology.
+5. Interactive Plotly charts (donut, heatmaps, fan charts, distributions, sensitivity
+   heatmaps, glide area, scorecard) render from a locally vendored `plotly.min.js` — no CDN.
+6. Download the full **Excel workbook** (19 sheets incl. *Rule Flags*) and **written DOCX report**.
+
+All analysis runs on your machine. Market data is fetched once via yfinance and cached
+under `data/cache/`; subsequent runs work offline for cached tickers.
+
+### Rule-based flags (non-AI recommendations)
+
+`src/rules/rule_engine.py` evaluates explicit thresholds from `config/model_config.yaml`
+(position cap, correlated-group cap, sector cap/target bands, cash floor, correlation
+threshold, drawdown review trigger, tail CVaR, reserve-funding probability, model
+disagreement, data confidence, thesis completeness, rebalancing bands, sensitivity
+fragility). Every flag reports: **metric → current value → threshold → rule →
+suggested action → severity** (CRITICAL/HIGH/WARNING/MONITOR). Flags appear in the
+dashboard *Flags & Actions* tab, the Excel *Rule Flags* sheet, and report section 19.5.
+
+### CLI
+
+```bash
 ../.venv/bin/python main.py                 # uses config/model_config.yaml input path
 ../.venv/bin/python main.py --input ../models/stock_weighting_model.xlsx
 ../.venv/bin/python main.py --sims 50000 --seed 7
@@ -65,9 +102,9 @@ histories flagged low-confidence.
 
 ## Outputs
 
-- `outputs/spreadsheet/portfolio_analysis.xlsx` — 17 sheets (dashboard, holdings, sectors,
+- `outputs/spreadsheet/portfolio_analysis.xlsx` — 19 sheets (dashboard, holdings, sectors,
   correlations, history, MC, Markov, bootstrap, comparison, sensitivity, risk, stress,
-  glide path, rebalancing, theses, data quality, scorecard)
+  glide path, rebalancing, rule flags, theses, data quality, scorecard, stop-loss)
 - `outputs/report/portfolio_analysis_report.docx` — 23-section written report
 - `outputs/figures/` — 15 charts
 - `outputs/report/run_manifest.yaml` — config, seed, versions (reproducibility)
