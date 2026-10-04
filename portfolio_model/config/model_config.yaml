@@ -1,0 +1,136 @@
+# Portfolio Modeling Agent — central configuration
+# All major assumptions are configurable here (spec section 77).
+
+input:
+  spreadsheet: "../models/stock_weighting_model.xlsx"   # change this path to use another spreadsheet
+  sheet: null            # null = auto-detect sheets containing holdings
+  base_currency: "USD"
+
+historical_data:
+  start_date: "2000-01-01"
+  end_date: null          # null = latest available
+  frequency: "daily"      # daily preferred; weekly/monthly fallback
+  cache_dir: "data/cache"
+  benchmarks:
+    equity: "SPY"
+    bonds: "AGG"
+    sixty_forty: "60/40 (SPY/AGG)"
+
+simulation:
+  n_simulations: 10000
+  random_seed: 42
+  start_year: 2027
+  glide_end_year: 2033
+  reserve_end_year: 2042
+  step: "monthly"
+  model: "gaussian"       # gaussian | lognormal | student_t | historical_residual
+  student_t_dof: 5
+
+cashflows:
+  contributions:
+    - {year: 2027, amount: 300000, timing: "start"}
+    - {year: 2028, amount: 150000, timing: "start"}
+  withdrawals: []
+  reserve_payments:
+    amount: 50000
+    first_year: 2033
+    last_year: 2042
+    timing: "start"
+  reserve_discount_rate: 0.029   # calibrated to existing workbook reserve (~$441,264)
+
+expected_returns:
+  source: "input"         # input = use spreadsheet Expected Return/Volatility columns when present
+                          # historical = use historical estimates only
+  window_years: null      # null = full history; e.g. 10 to use trailing window
+  shrinkage: 0.10         # James-Stein style shrink of historical mean toward cross-asset mean
+
+risk:
+  var_confidence: [0.95, 0.99]
+  correlation_threshold: 0.70
+  max_position_weight: 0.25          # WInS platform single-position cap
+  max_sector_weight: 0.35
+  max_correlated_group_weight: 0.30  # from stock_weighting_model
+  min_cash_weight: 0.05
+  risk_free_rate: 0.041              # ~3-month T-bill (from weighting model)
+  inflation_base: 0.02
+  inflation_scenarios: [0.02, 0.03, 0.04, 0.05]
+
+rebalancing:
+  enabled: true
+  method: "absolute"      # absolute | relative
+  band: 0.05              # 5 percentage points (absolute) or 25% (relative uses 0.25)
+  relative_band: 0.25
+  frequency: "annual"     # glide-path rebalance cadence
+  transaction_cost: 0.001 # 0.10% of turnover
+
+glide_path:
+  enabled: true
+  target_year: 2033
+  method: "linear"        # linear | accelerating | stepwise | custom
+  start_equity: null      # null = current portfolio equity share
+  end_equity: 0.55
+  custom_targets:
+    2027: 0.70
+    2028: 0.675
+    2029: 0.65
+    2030: 0.625
+    2031: 0.60
+    2032: 0.575
+    2033: 0.55
+
+bootstrap:
+  method: "block"         # iid | block
+  block_size_days: 20     # 5 | 20 | 60 trading days
+  n_simulations: 10000
+
+markov:
+  states: [severe_bear, bear, neutral, bull, strong_bull]
+  thresholds: [-0.20, -0.05, 0.05, 0.20]   # boundaries between the 5 states
+  n_simulations: 10000
+
+sensitivity:
+  return_shifts: [-0.04, -0.03, -0.02, -0.01, 0.0, 0.01, 0.02, 0.03, 0.04]
+  vol_multipliers: [0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30, 1.40, 1.50]
+  n_simulations: 2000
+
+stress_tests:
+  crises:
+    - name: "2008 Global Financial Crisis"
+      start: "2008-01-01"
+      end: "2009-03-31"
+    - name: "2020 COVID Crash"
+      start: "2020-02-19"
+      end: "2020-04-30"
+    - name: "2022 Rate-Hike Selloff"
+      start: "2022-01-01"
+      end: "2022-12-31"
+  hypothetical:
+    severe_equity_crash: {equity: -0.40, bonds: 0.05, cash: 0.0, commodities: 0.0}
+    stagflation:         {equity: -0.20, bonds: -0.10, cash: 0.0, commodities: 0.20, energy: 0.20}
+    recession:           {equity: -0.25, cyclicals: -0.35, defensives: -0.10, bonds: 0.08, cash: 0.0}
+    inflation_shock:     {equity: -0.15, long_duration_bonds: -0.20, short_duration_bonds: -0.05, commodities: 0.15, cash: 0.0}
+
+success:
+  definitions:
+    - "terminal_value_gt_start"
+    - "all_reserve_payments_funded"
+    - "above_real_capital_floor"
+  capital_floor_fractions: [1.00, 0.90, 0.80, 0.70]
+
+optimization:
+  enabled: true
+  objective: "max_sharpe"
+  max_position: 0.25
+  max_sector: 0.35
+  min_cash: 0.05
+
+stop_loss:
+  modes: [none, hard, trailing]
+  hard_levels: [0.10, 0.15, 0.20, 0.25]
+  trailing_levels: [0.15, 0.20, 0.25]
+
+sector_targets:
+  # Target sector weights for equity sleeve (null = derive from current allocation)
+  Information Technology: null
+  Communication Services: null
+  Broad Market (ETF): null
