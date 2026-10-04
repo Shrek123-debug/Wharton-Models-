@@ -123,6 +123,7 @@ def simulate_paths(asset_returns: np.ndarray, ctx: SimContext) -> dict:
     blend_row = np.zeros(n_assets)
     if ctx.bond_idx:
         blend_row[ctx.bond_idx] = ctx.bond_blend
+    flat_reserve = blend_row.sum() <= 0  # no bond assets: reserve held as flat cash
 
     for m in range(T):
         yr_row = min(m // MONTHS_PER_YEAR, len(target) - 1)
@@ -143,10 +144,12 @@ def simulate_paths(asset_returns: np.ndarray, ctx: SimContext) -> dict:
             values = reserve_bal[:, None] * blend_row[None, :]
 
         if m in ctx.payment_months:
-            reserve_bal = values.sum(axis=1) - ctx.payment_amount
+            base = reserve_bal if flat_reserve else values.sum(axis=1)
+            reserve_bal = base - ctx.payment_amount
             payments_funded &= reserve_bal >= -1e-9
             min_reserve_after_pay = np.minimum(min_reserve_after_pay, reserve_bal)
-            values = np.maximum(reserve_bal, 0)[:, None] * blend_row[None, :]
+            if not flat_reserve:
+                values = np.maximum(reserve_bal, 0)[:, None] * blend_row[None, :]
 
         if m % MONTHS_PER_YEAR == 0 and 0 < m < split_month:
             values, tr = rebalance_to(values, tgt)

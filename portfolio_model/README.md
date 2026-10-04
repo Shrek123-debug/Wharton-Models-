@@ -18,6 +18,43 @@ To use a different portfolio spreadsheet, either pass `--input path.xlsx` or cha
 `input.spreadsheet` in `config/model_config.yaml`. The ingestion layer auto-detects
 column names (Ticker/Symbol, Shares/Quantity, Market Value, Weight, Sector, Bucket, etc.).
 
+## Input spreadsheet format
+
+**Required:** at least one sheet containing a header row with a **ticker column** plus at
+least one sizing column — `Weight`, `Market Value`, or `Shares` + `Price`. The header may
+appear below title rows. Values must be static numbers or formula results cached by
+Excel/LibreOffice (open and save the file before uploading).
+
+**Ticker rules:** US-listed symbols matching `^[A-Z][A-Z0-9.-]{0,11}$` (e.g. `VOO`, `BRK.B`).
+Cash must appear as `CASH`. Foreign/currency-mismatched and unrecognized tickers are
+flagged and excluded (no FX conversion is applied).
+
+**Recognized columns (aliases auto-detected):**
+
+| Canonical | Accepted headers |
+|---|---|
+| `ticker` | Ticker, Symbol, Security, Name |
+| `quantity` | Shares, Quantity, Units |
+| `price` | Current Price, Price, Market Price |
+| `market_value` | Market Value, Current Value, Value |
+| `portfolio_weight` | Weight, % of Portfolio, Portfolio Weight |
+| `target_weight` | Target Weight, Target Allocation |
+| `sector` / `industry` | Sector, GICS Sector, Industry |
+| `asset_class` | Asset Class, Bucket, Class |
+| `currency` | Currency (must equal `input.base_currency`, default USD) |
+| `cost_basis` | Cost Basis, Avg Cost |
+| `expected_return` / `volatility` | Expected Return, Volatility, Std Dev |
+| `correlation_group` | Correlation Group, Group, Cluster |
+| `thesis` | Investment Thesis, Thematic Rationale, Why Own |
+| `stop_loss`, `notes`, `dividend_yield`, `purchase_date` | as named |
+
+**Automatic handling:** duplicate tickers merged; negative/zero positions dropped with a
+flag; weights normalized to 100%; missing sectors assigned via GICS lookup; short
+histories flagged low-confidence.
+
+**Examples:** `data/input/example_portfolio_full.xlsx` (all columns) and
+`data/input/example_portfolio_minimal.xlsx` (Ticker + Weight only).
+
 ## Simulation timeline (Laura Gao portfolio)
 
 - 2027: invest $300,000; 2028: invest $150,000

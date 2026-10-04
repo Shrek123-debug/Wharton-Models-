@@ -35,9 +35,10 @@ def main() -> None:
     results = run(input_path=args.input, config_path=args.config, out_dir=args.out, overrides=overrides or None)
 
     print("\n=== Portfolio Analysis Complete ===")
-    print(f"Workbook: {Path(results['meta']['input']).parent.parent / 'outputs' / 'spreadsheet' / 'portfolio_analysis.xlsx'}")
-    print(f"Report:   outputs/report/portfolio_analysis_report.docx")
-    print(f"Figures:  outputs/figures/ ({len(results['figures'])} charts)")
+    out = Path(args.out) if args.out else Path(__file__).resolve().parent / "outputs"
+    print(f"Workbook: {out / 'spreadsheet' / 'portfolio_analysis.xlsx'}")
+    print(f"Report:   {out / 'report' / 'portfolio_analysis_report.docx'}")
+    print(f"Figures:  {out / 'figures'}/ ({len(results['figures'])} charts)")
     s = results["mc_sum"]
     b = results["bs_sum"]
     print(f"\nMonte Carlo  : median 2033 ${s['median_terminal']:,.0f} | success {s['prob_terminal_gt_start']:.1%} | reserve funded {s['prob_all_payments_funded']:.1%}")

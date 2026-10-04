@@ -200,6 +200,12 @@ def run(input_path: str | None = None, config_path: str | None = None,
                 for t, meta in pd.read_csv(cache / "_fetch_meta.csv", index_col=0).to_dict("index").items()]
 
     prices = align_price_frames({t: frames[t] for t in risky if t in frames and len(frames[t])})
+    missing = [t for t in holdings["ticker"] if t != "CASH" and t not in prices.columns]
+    if missing:
+        dq_flags.append({"severity": "high", "ticker": ",".join(missing), "issue": "Ticker unavailable",
+                         "detail": "No market data found; holdings excluded and remaining weights renormalized."})
+        holdings = holdings[~holdings["ticker"].isin(missing)].copy()
+        holdings["weight"] = holdings["weight"] / holdings["weight"].sum()
     # cash column earns the risk-free rate daily
     rf = cfg["risk"]["risk_free_rate"]
     if "CASH" in list(holdings["ticker"]):

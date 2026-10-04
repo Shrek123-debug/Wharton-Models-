@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from ..ingestion.ingest import coerce_number
+
 CASH_TICKERS = {"CASH", "USD", "MMF", "BIL", "SGOV", "USDA"}
 BOND_TICKERS = {"IEF", "SHY", "AGG", "BND", "TLT", "LQD", "MUB", "VEU"}
 EQUITY_ETF = {"VOO", "SPY", "VTI", "QQQ", "IWM", "SCHB"}
@@ -49,6 +51,12 @@ def validate(holdings: pd.DataFrame, config: dict) -> ValidationResult:
     errors: list[str] = []
     df = holdings.copy()
 
+    # coerce numeric columns robustly ("25%", "1,000", "$500" -> numbers)
+    for col in ("quantity", "price", "cost_basis", "market_value", "portfolio_weight",
+                "target_weight", "expected_return", "volatility", "dividend_yield"):
+        if col in df.columns:
+            df[col] = [coerce_number(v) for v in df[col]]
+
     # --- required information -------------------------------------------------
     if "ticker" not in df.columns or df["ticker"].isna().all():
         errors.append("No ticker/security identifier found.")
@@ -72,17 +80,32 @@ def validate(holdings: pd.DataFrame, config: dict) -> ValidationResult:
         if col in df.columns:
             neg = df[df[col].fillna(0) < 0]
             if len(neg):
-                flags.append({"severity": "high", "ticker": ",".join(neg["ticker"]), "issue": f"Negative {col}", "detail": "Positions with negative values are not modeled."})
+                flags.append({"severity": "high", "ticker": ",".join(neg["ticker"]), "issue": f"Negative {col}", "detail": "Positions with negative values are excluded from modeling."})
             zero = df[(df[col].fillna(0) == 0) & df[col].notna()]
             if len(zero) and col in ("quantity", "market_value"):
                 flags.append({"severity": "medium", "ticker": ",".join(zero["ticker"]), "issue": f"Zero {col}", "detail": "Position excluded from modeling."})
 
+    drop_mask = pd.Series(False, index=df.index)
+    for col in ("quantity", "market_value", "portfolio_weight"):
+        if col in df.columns:
+            drop_mask |= df[col].fillna(0) < 0
+    df = df[~drop_mask]
     df = df[~(df.get("quantity", pd.Series(1, index=df.index)).fillna(1) == 0)]
     df = df[~(df.get("market_value", pd.Series(1, index=df.index)).fillna(1) == 0)]
 
+    # --- currency ---------------------------------------------------------------
+    base_ccy = config.get("input", {}).get("base_currency", "USD")
+    if "currency" in df.columns:
+        bad = df[df["currency"].notna() & (df["currency"].astype(str).str.upper() != base_ccy)]
+        if len(bad):
+            flags.append({"severity": "high", "ticker": ",".join(bad["ticker"]),
+                          "issue": "CURRENCY MISMATCH",
+                          "detail": f"Non-{base_ccy} holdings are excluded because no FX conversion is configured (spec section 110)."})
+            df = df[~df.index.isin(bad.index)]
+
     # --- weights ---------------------------------------------------------------
     weights_source = "none"
-    if "portfolio_weight" in df.columns and df["portfolio_weight"].notna().sum() >= max(1, len(df) - 1):
+    if "portfolio_weight" in df.columns and df["portfolio_weight"].notna().all() and len(df):
         w = df["portfolio_weight"].astype(float)
         total = w.sum()
         if total <= 0:
@@ -92,6 +115,9 @@ def validate(holdings: pd.DataFrame, config: dict) -> ValidationResult:
                 warnings.append(f"Supplied weights sum to {total:.4f}; normalized to 1.0.")
             df["weight"] = w / total
             weights_source = "supplied"
+    elif "portfolio_weight" in df.columns and df["portfolio_weight"].isna().any():
+        missing = df[df["portfolio_weight"].isna()]["ticker"].tolist()
+        errors.append(f"Missing weights for: {', '.join(missing)}. Supply a weight (or market value / quantity+price) for every holding.")
     elif {"quantity", "price"} <= set(df.columns) and df["quantity"].notna().all() and df["price"].notna().all():
         df["market_value"] = df["quantity"] * df["price"]
         df["weight"] = df["market_value"] / df["market_value"].sum()
@@ -106,6 +132,11 @@ def validate(holdings: pd.DataFrame, config: dict) -> ValidationResult:
         return ValidationResult(df, weights_source, warnings, flags, errors)
 
     # --- classification ---------------------------------------------------------
+    for col in ("thesis", "correlation_group", "expected_return", "volatility",
+                "cost_basis", "currency", "target_weight", "industry", "country"):
+        if col not in df.columns:
+            df[col] = np.nan
+
     df["asset_class"] = [
         classify_asset_class(t, df.loc[i, "asset_class"] if "asset_class" in df.columns else None)
         for i, t in enumerate(df["ticker"])

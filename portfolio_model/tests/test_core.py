@@ -287,3 +287,78 @@ def test_holding_attribution():
     monthly = pd.DataFrame({"A": [0.01] * 24, "B": [-0.01] * 24}, index=MONTHS)
     attr = holding_attribution(holdings, monthly)
     assert np.isclose(attr.set_index("ticker").loc["A", "contribution_12m"], 0.5 * ((1.01 ** 12) - 1))
+
+
+# ---------------------------------------------------------------- ingestion / upload robustness
+import openpyxl
+from src.ingestion.ingest import coerce_number, ingest
+
+
+def _make_xlsx(tmp_path, sheets):
+    wb = openpyxl.Workbook(); wb.remove(wb.active)
+    for name, rows in sheets.items():
+        ws = wb.create_sheet(name)
+        for r in rows:
+            ws.append(r)
+    p = tmp_path / "upload.xlsx"; wb.save(p); return p
+
+
+def test_coerce_number_formats():
+    assert coerce_number("25%") == 0.25
+    assert coerce_number("1,234") == 1234
+    assert coerce_number("$500") == 500
+    assert coerce_number("(100)") == -100
+    assert coerce_number("abc") is None
+    assert coerce_number(None) is None
+
+
+def test_minimal_weight_upload(tmp_path):
+    p = _make_xlsx(tmp_path, {"H": [["Ticker", "Weight"], ["VOO", 0.5], ["CASH", 0.5]]})
+    res = validate(ingest(str(p)).holdings, {"risk": {"max_position_weight": 1.0}, "input": {"base_currency": "USD"}})
+    assert not res.errors and res.weights_source == "supplied"
+
+
+def test_percent_string_weights(tmp_path):
+    p = _make_xlsx(tmp_path, {"H": [["Ticker", "Weight"], ["VOO", "60%"], ["CASH", "40%"]]})
+    res = validate(ingest(str(p)).holdings, {"risk": {"max_position_weight": 1.0}, "input": {"base_currency": "USD"}})
+    assert np.isclose(res.holdings["weight"].sum(), 1.0)
+    assert res.holdings.loc[res.holdings.ticker == "VOO", "weight"].iloc[0] == 0.6
+
+
+def test_header_below_title_rows(tmp_path):
+    p = _make_xlsx(tmp_path, {"S": [["My Portfolio"], ["Oct 2026"], [], ["Security", "Market Value"],
+                                    ["VOO", 100000], ["TOTAL", 100000]]})
+    res = validate(ingest(str(p)).holdings, {"risk": {"max_position_weight": 1.0}, "input": {"base_currency": "USD"}})
+    assert len(res.holdings) == 1 and res.holdings.iloc[0]["ticker"] == "VOO"
+
+
+def test_invalid_ticker_flagged_not_silent(tmp_path):
+    p = _make_xlsx(tmp_path, {"H": [["Ticker", "Weight"], ["VOO", 0.7], ["7203.T", 0.3]]})
+    ing = ingest(str(p))
+    assert any("invalid/unsupported ticker" in w for w in ing.warnings)
+
+
+def test_negative_rows_dropped(tmp_path):
+    p = _make_xlsx(tmp_path, {"H": [["Ticker", "Shares", "Price"], ["VOO", 10, 500], ["BAD", -5, 10]]})
+    res = validate(ingest(str(p)).holdings, {"risk": {"max_position_weight": 1.0}, "input": {"base_currency": "USD"}})
+    assert "BAD" not in res.holdings["ticker"].values
+    assert any(f["issue"] == "Negative quantity" for f in res.flags)
+
+
+def test_currency_mismatch_excluded(tmp_path):
+    p = _make_xlsx(tmp_path, {"H": [["Ticker", "Weight", "Currency"], ["VOO", 0.7, "USD"], ["SAP", 0.3, "EUR"]]})
+    res = validate(ingest(str(p)).holdings, {"risk": {"max_position_weight": 1.0}, "input": {"base_currency": "USD"}})
+    assert "SAP" not in res.holdings["ticker"].values
+    assert any(f["issue"] == "CURRENCY MISMATCH" for f in res.flags)
+
+
+def test_missing_weight_errors(tmp_path):
+    p = _make_xlsx(tmp_path, {"H": [["Ticker", "Weight"], ["VOO", 0.5], ["ADBE", None]]})
+    res = validate(ingest(str(p)).holdings, {"risk": {"max_position_weight": 1.0}, "input": {"base_currency": "USD"}})
+    assert res.errors and "ADBE" in res.errors[0]
+
+
+def test_no_table_raises(tmp_path):
+    p = _make_xlsx(tmp_path, {"N": [["just text"]]})
+    with pytest.raises(ValueError):
+        ingest(str(p))

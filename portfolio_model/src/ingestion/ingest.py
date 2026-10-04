@@ -32,7 +32,31 @@ ALIASES: dict[str, list[str]] = {
     "correlation_group": ["correlation group", "correlation group (blank = independent)", "group", "cluster"],
 }
 
-TICKER_RE = re.compile(r"^[A-Z][A-Z.\-]{0,9}$")
+TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,11}$")
+
+NUMERIC_FIELDS = {"quantity", "price", "cost_basis", "market_value", "portfolio_weight",
+                  "target_weight", "bucket_target", "dividend_yield", "expected_return", "volatility"}
+
+
+def coerce_number(v):
+    if v is None or isinstance(v, (int, float)):
+        return v
+    s = str(v).strip().replace(",", "").replace("$", "").replace(" ", "")
+    if not s:
+        return None
+    neg = s.startswith("(") and s.endswith(")")
+    s = s.strip("()")
+    if s.endswith("%"):
+        try:
+            val = float(s[:-1]) / 100.0
+        except ValueError:
+            return None
+    else:
+        try:
+            val = float(s)
+        except ValueError:
+            return None
+    return -val if neg else val
 
 
 def _norm(s) -> str:
@@ -87,6 +111,8 @@ def ingest(path: str, sheet: str | None = None) -> IngestResult:
             continue
         header_row, max_col, mapping = found
         rows = []
+        rows_skipped = 0
+        rows_skipped_list: list[str] = []
         for r in range(header_row + 1, ws.max_row + 1):
             vals = [ws.cell(row=r, column=c + 1).value for c in range(max_col)]
             rec = {canon: vals[i] for i, canon in mapping.items()}
@@ -94,17 +120,20 @@ def ingest(path: str, sheet: str | None = None) -> IngestResult:
             if t is None:
                 continue
             t = str(t).strip()
-            # skip subtotal/label rows
-            if not TICKER_RE.match(t.upper().replace(" ", "")):
+            tu = t.upper().replace(" ", "")
+            if any(k in _norm(t) for k in ("subtotal", "total", "your", "pick", "check")) or tu in {"TOTAL", "SUBTOTAL", "SUM", "TBD"}:
                 continue
-            if t.upper() in {"TOTAL", "SUBTOTAL", "SUM", "CASH TOTAL", "TBD"}:
-                continue
-            if any(k in _norm(t) for k in ("subtotal", "total", "your", "pick", "check")):
+            if not TICKER_RE.match(tu):
+                rows_skipped += 1
+                rows_skipped_list.append(t)
                 continue
             rec["ticker"] = t.upper()
-            if all(v is None for k, v in rec.items() if k != "ticker"):
-                continue
+            for k in list(rec):
+                if k in NUMERIC_FIELDS:
+                    rec[k] = coerce_number(rec[k])
             rows.append(rec)
+        if rows_skipped:
+            warnings.append(f"Sheet '{name}': skipped {rows_skipped} row(s) with invalid/unsupported ticker(s): {rows_skipped_list[:10]}")
         if rows:
             df = pd.DataFrame(rows)
             df["_source_sheet"] = name
@@ -118,6 +147,29 @@ def ingest(path: str, sheet: str | None = None) -> IngestResult:
     holdings = pd.concat(frames, ignore_index=True)
     # merge duplicate detections across sheets (prefer non-null)
     holdings = holdings.groupby("ticker", as_index=False).first()
+
+    # formula-without-cached-value detection (common upload failure)
+    for col in ("portfolio_weight", "market_value", "quantity", "price"):
+        if col in holdings.columns and holdings[col].isna().all():
+            wb2 = openpyxl.load_workbook(path, data_only=False)
+            formulas = 0
+            for name in sheets:
+                found = _find_holdings_table(wb2[name])
+                if not found:
+                    continue
+                hr, mc, mp = found
+                col_idx = [i for i, c in mp.items() if c == col]
+                if not col_idx:
+                    continue
+                for r in range(hr + 1, wb2[name].max_row + 1):
+                    v = wb2[name].cell(row=r, column=col_idx[0] + 1).value
+                    if isinstance(v, str) and v.startswith("="):
+                        formulas += 1
+            if formulas:
+                warnings.append(
+                    f"Column '{col}' contains {formulas} formula cell(s) with no cached values. "
+                    "Open the workbook in Excel/LibreOffice and save it so values are cached, "
+                    "or export static values.")
 
     warnings.append(f"Detected columns: {sorted(k for k in holdings.columns if k != '_source_sheet')}")
     return IngestResult(holdings=holdings, detected_columns=detected, warnings=warnings, source_file=str(path))
