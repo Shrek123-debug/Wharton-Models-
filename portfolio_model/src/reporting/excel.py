@@ -205,6 +205,12 @@ def build_workbook(path: Path, results: dict) -> Path:
     _write_df(ws, results["decision_matrix"], end, "Final Decision Matrix")
     _autosize(ws)
 
+    # ---- Sheet 18: Stop-Loss Backtests
+    ws = wb.create_sheet("Stop-Loss Backtests")
+    _write_df(ws, results["stop_sheet"], 1, "Stop-Loss Backtests (historical, not advice)",
+              pct_cols=("cagr", "vol", "max_drawdown", "total_return", "missed_upside"))
+    _autosize(ws)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     return path

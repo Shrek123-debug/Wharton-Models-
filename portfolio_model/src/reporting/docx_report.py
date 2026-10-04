@@ -158,6 +158,10 @@ def build_report(path: Path, results: dict) -> Path:
     _p(doc, "These are portfolio risk-discipline rules, not short-term trading signals.")
     for line in results["risk_discipline"]:
         _p(doc, f"- {line}")
+    _h(doc, "18.1 Stop-Loss Backtests (historical, not advice)", 2)
+    _p(doc, "Hard and trailing stops were backtested on adjusted price history with re-entry after 21 trading days. "
+            "A stop is not selected merely because it produced the highest historical return.")
+    _table(doc, results["stop_sheet"], pct_cols=("cagr", "max_drawdown", "missed_upside"), max_rows=30)
 
     # 19 Key Risks
     _h(doc, "19. Key Risks")

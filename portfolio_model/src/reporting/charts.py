@@ -117,10 +117,10 @@ def model_comparison_table_image(rows: list[dict], out_dir: Path) -> Path:
     df = pd.DataFrame(rows)
     fig, ax = plt.subplots(figsize=(8, 3.2))
     ax.axis("off")
-    tbl = ax.table(cellText=df.values.round(3) if df.values.dtype != object else df.values,
-                   colLabels=df.columns, cellLoc="center", loc="center")
-    tbl.auto_size_font()
-    tbl.scale(1, 1.3)
+    tbl = ax.table(cellText=df.values, colLabels=df.columns, cellLoc="center", loc="center")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(7)
+    tbl.scale(1, 1.25)
     ax.set_title("Model Comparison (simulated, not guaranteed)")
     _save(fig, out_dir, "09_model_comparison")
     return out_dir / "09_model_comparison.png"

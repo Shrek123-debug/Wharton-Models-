@@ -25,6 +25,7 @@ from .reporting.excel import build_workbook
 from .returns.returns import annual_vol_monthly, annualize, simple_returns, to_monthly
 from .risk.risk import (concentration_report, correlation_clusters, correlation_flags,
                         drawdown_distribution, hhi, recovery_analysis, var_cvar_table)
+from .risk.stoploss import run_stop_backtests
 from .sectors.sectors import assign_sector, sector_correlations, sector_table
 from .sensitivity.sensitivity import interpret_grid, run_sensitivity
 from .stress_tests.stress import crisis_test, hypothetical_test
@@ -350,6 +351,8 @@ def run(input_path: str | None = None, config_path: str | None = None,
         for m, s in glide_variants.items()])
 
     # 30-31. risk discipline + theses
+    stop_df = run_stop_backtests(prices, list(holdings["ticker"]),
+                                 cfg["stop_loss"]["hard_levels"], cfg["stop_loss"]["trailing_levels"])
     discipline = [
         f"Maximum position size: {cfg['risk']['max_position_weight']:.0%} (current max: {conc['largest'][1]:.1%} in {conc['largest'][0]})",
         f"Maximum sector/group exposure: correlated-group cap {cfg['risk']['max_correlated_group_weight']:.0%}",
@@ -394,6 +397,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
     figs["glide"] = charts.glide_path_chart(glide_targets, fig_dir)
     figs["sector_contrib"] = charts.contribution_chart(sec_tbl.reset_index().rename(columns={"sector": "label"})[["label", "contribution_12m"]], fig_dir, "13_sector_contribution", "Sector Contribution to 12m Return")
     figs["concentration"] = charts.risk_concentration_chart(holdings.set_index("ticker")["weight"], fig_dir)
+    figs["comparison"] = charts.model_comparison_table_image(comparison.to_dict("records"), fig_dir)
 
     # assemble sheets
     holdings_sheet = _holdings_sheet(holdings, port, params, var_table, clusters, confidence, attr)
@@ -459,7 +463,8 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "decision_matrix": _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df),
         "risk_sheet": risk_sheet, "holdings_sheet": holdings_sheet, "history_sheet": history_sheet,
         "mc_sheet": mc_sheet, "mc_percentiles": _percentile_frame(mc_sum), "bs_sheet": bs_sheet,
-        "sector_sheet": sec_tbl.reset_index().assign(target_weight=np.nan, difference=np.nan),
+        "sector_sheet": sec_tbl.reset_index().assign(target_weight=sec_tbl["weight"].values, difference=0.0),
+        "stop_sheet": stop_df,
         "corr": port.corr, "sec_corr": sec_corr, "attr": attr, "conc": conc,
         "var_table": var_table, "dd_dist": dd_dist, "clusters": clusters,
         "confidence": confidence, "figures": figs, "opt": opt,
