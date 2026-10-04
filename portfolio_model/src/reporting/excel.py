@@ -158,8 +158,10 @@ def build_workbook(path: Path, results: dict) -> Path:
 
     # ---- Sheet 11: Risk
     ws = wb.create_sheet("Risk")
-    _write_df(ws, results["risk_sheet"], 1, "Portfolio Risk Metrics",
-              pct_cols=("value",))
+    end = _write_df(ws, results["risk_sheet"], 1, "Portfolio Risk Metrics",
+                    pct_cols=("value",))
+    _write_df(ws, results["recovery_sheet"], end, "Major Drawdown Recovery Events",
+              pct_cols=("drawdown",))
     _autosize(ws)
 
     # ---- Sheet 12: Stress Tests

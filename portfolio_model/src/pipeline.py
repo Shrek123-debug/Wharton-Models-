@@ -405,6 +405,18 @@ def run(input_path: str | None = None, config_path: str | None = None,
     mc_sheet = _sim_sheet(mc, total_contrib)
     bs_sheet = _sim_sheet(bs, total_contrib)
     risk_sheet = _risk_sheet(port, var_table, mc_sum, bs_sum, conc, dd_dist, sec_corr)
+    extra = []
+    for infl in cfg["risk"]["inflation_scenarios"]:
+        rc = total_contrib * (1 + infl) ** (cfg["simulation"]["glide_end_year"] - cfg["simulation"]["start_year"])
+        extra.append({"metric": f"MC success above real capital @ {infl:.0%} inflation",
+                      "value": float((mc["terminal_2033"] > rc).mean())})
+        extra.append({"metric": f"Bootstrap success above real capital @ {infl:.0%} inflation",
+                      "value": float((bs["terminal_2033"] > rc).mean())})
+    for f in (1.0, 0.9, 0.8, 0.7):
+        extra.append({"metric": f"MC prob terminal above {int(f * 100)}% real capital floor",
+                      "value": mc_sum[f"prob_floor_{int(f * 100)}"]})
+    risk_sheet = pd.concat([risk_sheet, pd.DataFrame(extra)], ignore_index=True)
+    recovery_df = recovery_analysis(port.portfolio_value_index)
     markov_states = mk["state_stats"].reset_index()
     markov_P = mk["P_df"].reset_index()
     markov_misc = pd.DataFrame([
@@ -461,7 +473,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "glide_sheet": glide_targets.reset_index(), "glide_impact_sheet": glide_impact,
         "rebalance_sheet": reb_df, "thesis_sheet": thesis_df, "scorecard": scorecard,
         "decision_matrix": _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df),
-        "risk_sheet": risk_sheet, "holdings_sheet": holdings_sheet, "history_sheet": history_sheet,
+        "risk_sheet": risk_sheet, "recovery_sheet": recovery_df, "holdings_sheet": holdings_sheet, "history_sheet": history_sheet,
         "mc_sheet": mc_sheet, "mc_percentiles": _percentile_frame(mc_sum), "bs_sheet": bs_sheet,
         "sector_sheet": sec_tbl.reset_index().assign(target_weight=sec_tbl["weight"].values, difference=0.0),
         "stop_sheet": stop_df,
