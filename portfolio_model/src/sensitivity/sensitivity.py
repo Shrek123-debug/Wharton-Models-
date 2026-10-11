@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ..monte_carlo.mc import generate_returns, month_index, simulate_paths
+from ..monte_carlo.mc import generate_returns, simulate_paths
 
 
 def run_sensitivity(mu_m: np.ndarray, cov_m: np.ndarray, ctx, return_shifts: list[float],

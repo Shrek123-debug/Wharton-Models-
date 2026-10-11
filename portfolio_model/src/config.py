@@ -12,7 +12,7 @@ PROJECT_ROOT = PACKAGE_ROOT.parent
 
 def load_config(path: str | os.PathLike | None = None) -> dict:
     path = Path(path) if path else PACKAGE_ROOT / "config" / "model_config.yaml"
-    with open(path, "r") as fh:
+    with open(path) as fh:
         return yaml.safe_load(fh)
 
 

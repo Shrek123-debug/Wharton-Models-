@@ -129,7 +129,7 @@ def test_clean_portfolio_triggers_no_flags():
               "prob_all_payments_funded": 0.97, "prob_terminal_gt_start": 0.95}
     bs_sum = {**bs_sum, "prob_dd_gt_20": 0.15, "mc_cvar_95": 0.20,
               "prob_all_payments_funded": 0.95, "prob_terminal_gt_start": 0.90}
-    confidence = {t: "High" for t in holdings["ticker"]}
+    confidence = dict.fromkeys(holdings["ticker"], "High")
     reb_df = reb_df.assign(trigger=False)
     flags = build_rule_flags(CFG, holdings, sec_tbl, conc, [], mc_sum, bs_sum, mk_sum,
                              disagreement, confidence, reb_df, {"fragile_vol_threshold": 1.5})

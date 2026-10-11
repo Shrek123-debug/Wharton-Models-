@@ -155,7 +155,7 @@ async def analyze(file: UploadFile | None = File(None), options: str = Form("{}"
         if not isinstance(overrides, dict):
             raise ValueError
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid options payload.")
+        raise HTTPException(status_code=400, detail="Invalid options payload.") from None
 
     input_path = LAST_INPUT
     if file is not None and file.filename:

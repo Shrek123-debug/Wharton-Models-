@@ -9,7 +9,6 @@ from openpyxl import Workbook
 from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.utils.dataframe import dataframe_to_rows
 
 TITLE_FONT = Font(bold=True, size=14, color="1F4E79")
 HDR_FONT = Font(bold=True, color="FFFFFF")

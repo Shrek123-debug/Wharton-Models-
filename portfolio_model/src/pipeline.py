@@ -14,17 +14,23 @@ from .attribution.attribution import holding_attribution, pl_note
 from .bootstrap.bootstrap import run_bootstrap
 from .config import PACKAGE_ROOT, load_config, resolve
 from .ingestion.ingest import ingest
-from .markov.markov import STATE_NAMES, markov_summary, run_markov
 from .market_data.fetch import align_price_frames, fetch_history
-from .monte_carlo.mc import SimContext, month_index, required_reserve_pv, run_monte_carlo, summarize_simulation
+from .markov.markov import STATE_NAMES, markov_summary, run_markov
+from .monte_carlo.mc import SimContext, required_reserve_pv, run_monte_carlo, summarize_simulation
 from .optimization.optimize import suggest_allocation
-from .portfolio.portfolio import EQUITY_CLASSES, benchmark_series, build_portfolio, sector_of
+from .portfolio.portfolio import EQUITY_CLASSES, benchmark_series, build_portfolio
 from .reporting import charts
 from .reporting.docx_report import build_report
 from .reporting.excel import build_workbook
-from .returns.returns import annual_vol_monthly, annualize, simple_returns, to_monthly
-from .risk.risk import (concentration_report, correlation_clusters, correlation_flags,
-                        drawdown_distribution, hhi, recovery_analysis, var_cvar_table)
+from .returns.returns import annual_vol_monthly, annualize
+from .risk.risk import (
+    concentration_report,
+    correlation_clusters,
+    correlation_flags,
+    drawdown_distribution,
+    recovery_analysis,
+    var_cvar_table,
+)
 from .risk.stoploss import run_stop_backtests
 from .rules.rule_engine import build_rule_flags
 from .sectors.sectors import assign_sector, sector_correlations, sector_table
@@ -59,13 +65,12 @@ def build_glide_targets(method: str, years: list[int], start_eq: float, end_eq: 
         eq = np.linspace(start_eq, end_eq, n)
     remainder = 1 - eq
     tot = bond_share + cash_share
-    df = pd.DataFrame({
+    return pd.DataFrame({
         "year": years,
         "equity": eq,
         "bond": remainder * (bond_share / tot if tot > 0 else 0.5),
         "cash": remainder * (cash_share / tot if tot > 0 else 0.5),
     }).set_index("year")
-    return df
 
 
 def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
@@ -691,7 +696,7 @@ def _holdings_sheet(holdings, port, params, var_table, clusters, confidence, att
     attr_map = attr.set_index("ticker")
     for _, h in holdings.iterrows():
         t = h["ticker"]
-        p = params["corr"]
+        params["corr"]
         beta = float(np.cov(port.monthly_returns[t].fillna(0), port.portfolio_monthly)[0, 1] /
                      np.var(port.portfolio_monthly)) if t in port.monthly_returns.columns and t != "CASH" else 0.0
         vol = float(params["vol_annual"][list(holdings["ticker"]).index(t)])
@@ -848,7 +853,7 @@ def _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df) -> pd
 
 
 def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreement_df, ctx) -> list[str]:
-    lines = [
+    return [
         f"Where are we now? {len(holdings)} holdings; equity {holdings[holdings['asset_class'].isin(EQUITY_CLASSES)]['weight'].sum():.0%}, "
         f"bonds {holdings[holdings['asset_class'].isin(['Treasury', 'Corporate Bond'])]['weight'].sum():.0%}, "
         f"cash {holdings[holdings['asset_class'] == 'Cash']['weight'].sum():.0%}. Historical CAGR {port.stats['cagr_historical']:.1%}, "
@@ -861,13 +866,12 @@ def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreemen
         f"Biggest concentration: correlated group Growth/Consumer-Tech (ADBE+DIS+DUOL) at "
         f"{holdings[holdings['correlation_group'] == 'Growth/Consumer-Tech']['weight'].sum():.0%} vs 30% cap; "
         f"largest single holding {conc['largest'][0]} at {conc['largest'][1]:.0%}.",
-        f"Biggest modeling uncertainty: " + ("MATERIAL disagreement between Monte Carlo and historical bootstrap — see Model Comparison."
+        "Biggest modeling uncertainty: " + ("MATERIAL disagreement between Monte Carlo and historical bootstrap — see Model Comparison."
                                             if any("Material" in str(f) for f in disagreement_df.to_dict("records"))
                                             else "Monte Carlo and historical bootstrap broadly agree."),
         "What should change? See Recommended Actions (prioritized): trim correlated-group overweight, size the 2033 reserve from bootstrap (heavier-tail) results, adopt the glide path.",
         f"Reserve design: required reserve (PV of 10 x $50,000 payments 2033-2042 at {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
     ]
-    return lines
 
 
 def _historical_text(port, benchmarks) -> str:
@@ -905,8 +909,8 @@ def _markov_text(mk, s) -> str:
             f"Current state: {mk['current_state']}. P(bear next year) {mk['prob_bear_next']:.1%}; "
             f"P(bear at any point 2027-2032) {mk['bear_ever_prob']:.1%}. Stationary distribution: "
             + ", ".join(f"{s_}={p:.2f}" for s_, p in zip(STATE_NAMES, mk["stationary"])) + ". "
-            f"Limitations: Markov memoryless assumption, state discretization, dependence on historical transition "
-            f"frequencies, non-stationarity, structural market change — not a deterministic forecast.")
+            "Limitations: Markov memoryless assumption, state discretization, dependence on historical transition "
+            "frequencies, non-stationarity, structural market change — not a deterministic forecast.")
 
 
 def _bs_text(cfg, s, ctx, contrib) -> str:
@@ -947,7 +951,7 @@ def _key_risks(cfg, holdings, mc_sum, bs_sum, conc, corr_flags, confidence) -> l
 
 def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_flags, disagreement_df, confidence, glide_variants) -> dict:
     group_w = holdings[holdings["correlation_group"] == "Growth/Consumer-Tech"]["weight"].sum()
-    recs = {
+    return {
         "Immediate (Priority 1-2)": [
             f"Trim the Growth/Consumer-Tech correlated group from {group_w:.0%} toward the 30% cap (e.g., reduce DUOL/ADBE) — model identifies a cap breach; investor should weigh tax and conviction before acting.",
             f"Size the 2033 reserve using the bootstrap (heavier-tail) distribution, not the Gaussian MC: bootstrap P(funded) = {bs_sum['prob_all_payments_funded']:.1%}.",
@@ -966,7 +970,6 @@ def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_fl
             "Correlation clusters during stress periods (correlations rise in crises).",
         ],
     }
-    return recs
 
 
 def _methodology(cfg) -> list[str]:
@@ -1155,7 +1158,7 @@ def _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df) -> pd
 
 
 def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreement_df, ctx) -> list[str]:
-    lines = [
+    return [
         f"Where are we now? {len(holdings)} holdings; equity {holdings[holdings['asset_class'].isin(EQUITY_CLASSES)]['weight'].sum():.0%}, "
         f"bonds {holdings[holdings['asset_class'].isin(['Treasury', 'Corporate Bond'])]['weight'].sum():.0%}, "
         f"cash {holdings[holdings['asset_class'] == 'Cash']['weight'].sum():.0%}. Historical CAGR {port.stats['cagr_historical']:.1%}, "
@@ -1168,13 +1171,12 @@ def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreemen
         f"Biggest concentration: correlated group Growth/Consumer-Tech (ADBE+DIS+DUOL) at "
         f"{holdings[holdings['correlation_group'] == 'Growth/Consumer-Tech']['weight'].sum():.0%} vs 30% cap; "
         f"largest single holding {conc['largest'][0]} at {conc['largest'][1]:.0%}.",
-        f"Biggest modeling uncertainty: " + ("MATERIAL disagreement between Monte Carlo and historical bootstrap — see Model Comparison."
+        "Biggest modeling uncertainty: " + ("MATERIAL disagreement between Monte Carlo and historical bootstrap — see Model Comparison."
                                             if any("Material" in str(f) for f in disagreement_df.to_dict("records"))
                                             else "Monte Carlo and historical bootstrap broadly agree."),
         "What should change? See Recommended Actions (prioritized): trim correlated-group overweight, size the 2033 reserve from bootstrap (heavier-tail) results, adopt the glide path.",
         f"Reserve design: required reserve (PV of 10 x $50,000 payments 2033-2042 at {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
     ]
-    return lines
 
 
 def _historical_text(port, benchmarks) -> str:
@@ -1204,8 +1206,7 @@ def _concentration_text(conc, holdings) -> str:
 
 
 def _mc_text(cfg, s, ctx, contrib) -> str:
-    text = (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; P(all 10 reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
-    return text
+    return (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; P(all 10 reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
 
 
 def _markov_text(mk, s) -> str:
@@ -1213,8 +1214,8 @@ def _markov_text(mk, s) -> str:
             f"Current state: {mk['current_state']}. P(bear next year) {mk['prob_bear_next']:.1%}; "
             f"P(bear at any point 2027-2032) {mk['bear_ever_prob']:.1%}. Stationary distribution: "
             + ", ".join(f"{s_}={p:.2f}" for s_, p in zip(STATE_NAMES, mk["stationary"])) + ". "
-            f"Limitations: Markov memoryless assumption, state discretization, dependence on historical transition "
-            f"frequencies, non-stationarity, structural market change — not a deterministic forecast.")
+            "Limitations: Markov memoryless assumption, state discretization, dependence on historical transition "
+            "frequencies, non-stationarity, structural market change — not a deterministic forecast.")
 
 
 def _bs_text(cfg, s, ctx, contrib) -> str:
@@ -1255,7 +1256,7 @@ def _key_risks(cfg, holdings, mc_sum, bs_sum, conc, corr_flags, confidence) -> l
 
 def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_flags, disagreement_df, confidence, glide_variants) -> dict:
     group_w = holdings[holdings["correlation_group"] == "Growth/Consumer-Tech"]["weight"].sum()
-    recs = {
+    return {
         "Immediate (Priority 1-2)": [
             f"Trim the Growth/Consumer-Tech correlated group from {group_w:.0%} toward the 30% cap (e.g., reduce DUOL/ADBE) — model identifies a cap breach; investor should weigh tax and conviction before acting.",
             f"Size the 2033 reserve using the bootstrap (heavier-tail) distribution, not the Gaussian MC: bootstrap P(funded) = {bs_sum['prob_all_payments_funded']:.1%}.",
@@ -1274,7 +1275,6 @@ def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_fl
             "Correlation clusters during stress periods (correlations rise in crises).",
         ],
     }
-    return recs
 
 
 def _methodology(cfg) -> list[str]:

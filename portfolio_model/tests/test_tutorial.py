@@ -10,9 +10,9 @@ PKG_ROOT = Path(__file__).resolve().parent.parent
 DOCS = PKG_ROOT.parent / "docs"
 sys.path.insert(0, str(PKG_ROOT))
 
+from src.config import load_config  # noqa: E402
 from src.ingestion.ingest import ingest  # noqa: E402
 from src.validation.validate import validate  # noqa: E402
-from src.config import load_config  # noqa: E402
 
 EXAMPLES = {
     "example_portfolio_minimal.xlsx": {"CASH", "IEF", "VOO", "XOM"},

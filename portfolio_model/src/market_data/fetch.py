@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..config import PACKAGE_ROOT, resolve
+from ..config import PACKAGE_ROOT
 
 log = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ def _read_cached(path: Path, start: str, end: str | None) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _record(result: "FetchResult", ticker: str, df: pd.DataFrame, source: str,
+def _record(result: FetchResult, ticker: str, df: pd.DataFrame, source: str,
             now_utc: str, note: str) -> None:
     result.frames[ticker] = df
     result.provenance[ticker] = {
@@ -158,7 +158,7 @@ def _network_fetch(ticker: str, start: str, end: str | None) -> pd.DataFrame:
         log.info("yfinance is not installed; using local data for %s", ticker)
         return pd.DataFrame()
     try:
-        df = yf.download(ticker, start=start, end=None if not end else end,
+        df = yf.download(ticker, start=start, end=end if end else None,
                          auto_adjust=True, progress=False, threads=False)
     except Exception as exc:
         log.warning("Network fetch failed for %s: %s", ticker, exc)
@@ -192,7 +192,6 @@ def fetch_history(tickers: list[str], start: str, end: str | None,
     now_utc = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     result = FetchResult()
-    network_tried = False
     network_ok: bool | None = None
 
     for t in tickers:
@@ -236,7 +235,6 @@ def fetch_history(tickers: list[str], start: str, end: str | None,
         # ---- tier 2: network -------------------------------------------------------
         df = pd.DataFrame()
         if mode != "always":
-            network_tried = True
             try:
                 df = _network_fetch(t, start, end)
             except Exception as exc:  # a broken network stack must not break the run
@@ -285,8 +283,8 @@ def fetch_history(tickers: list[str], start: str, end: str | None,
             result.provenance[t] = {"status": "unavailable", "source": "none", "rows": 0,
                                     "inception": None, "data_as_of": None, "fetched_utc": now_utc,
                                     "note": ("no cache, no network and no bundled snapshot for this ticker; "
-                                             "run `python scripts/build_offline_dataset.py --tickers %s` "
-                                             "while online, or place a snapshot in data/offline/" % t)}
+                                             f"run `python scripts/build_offline_dataset.py --tickers {t}` "
+                                             "while online, or place a snapshot in data/offline/")}
 
     # one consolidated audit trail per run
     try:

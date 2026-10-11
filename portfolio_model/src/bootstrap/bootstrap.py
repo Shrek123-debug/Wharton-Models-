@@ -9,7 +9,6 @@ then compounded to monthly returns for the shared simulation core.
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 from ..monte_carlo.mc import n_months, simulate_paths
 

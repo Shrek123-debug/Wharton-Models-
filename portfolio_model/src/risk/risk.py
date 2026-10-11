@@ -93,7 +93,7 @@ def correlation_clusters(corr: pd.DataFrame, threshold: float) -> dict[str, int]
     for c in cols:
         groups.setdefault(find(c), []).append(c)
     for k, members in enumerate(groups.values()):
-        label = members[0] if len(members) == 1 else "cluster:" + ",".join(sorted(members))
+        members[0] if len(members) == 1 else "cluster:" + ",".join(sorted(members))
         for m in members:
             clusters[m] = k
     return clusters

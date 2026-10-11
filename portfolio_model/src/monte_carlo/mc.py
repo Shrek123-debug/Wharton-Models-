@@ -14,9 +14,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from scipy import stats
-
-from ..portfolio.portfolio import drawdown_series
 
 MONTHS_PER_YEAR = 12
 
@@ -230,7 +227,6 @@ def summarize_simulation(res: dict, ctx: SimContext, total_contributions: float)
     infl = ctx.inflation
     years_to_2033 = ctx.glide_end_year - ctx.start_year
     real_contrib = total_contributions * (1 + infl) ** years_to_2033
-    real_term = term
     pcts = [5, 10, 25, 50, 75, 90, 95]
     out = {
         "median_terminal": float(np.median(term)),

@@ -29,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd  # noqa: E402
 
-from src.config import PACKAGE_ROOT, load_config, resolve  # noqa: E402
 from src.market_data.fetch import BUNDLED_DIR  # noqa: E402
 from src.runtime_env import configure_local_runtime  # noqa: E402
 

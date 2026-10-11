@@ -15,10 +15,10 @@ import pytest
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))
 
-from src.market_data import fetch as fetch_mod  # noqa: E402
-from src.market_data.fetch import FetchResult, align_price_frames, fetch_history  # noqa: E402
-from src.pipeline import PipelineError, _apply_overrides  # noqa: E402
 from src.config import load_config  # noqa: E402
+from src.market_data import fetch as fetch_mod  # noqa: E402
+from src.market_data.fetch import align_price_frames, fetch_history  # noqa: E402
+from src.pipeline import PipelineError, _apply_overrides  # noqa: E402
 
 
 def _synthetic(start: str = "2000-01-01", n: int = 6000, seed: int = 0) -> pd.DataFrame:

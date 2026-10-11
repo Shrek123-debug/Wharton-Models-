@@ -46,7 +46,7 @@ def crisis_test(name: str, start: str, end: str, port_daily: pd.Series,
             per_asset[t] = float((1 + a).prod() - 1)
         else:
             per_asset[t] = 0.0
-    contrib = {t: weights[t] * r for t, r in per_asset.items()}
+    {t: weights[t] * r for t, r in per_asset.items()}
     worst_t = min(per_asset, key=per_asset.get)
     best_t = max(per_asset, key=per_asset.get)
 
