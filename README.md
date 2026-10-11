@@ -281,7 +281,7 @@ cd portfolio_model && python -m pytest tests -q
 `requirements.txt` deliberately excludes test tooling so a plain install stays minimal;
 install `requirements-dev.txt` before running the tests or `ruff`.
 
-100 tests cover returns math, ingestion/validation robustness, covariance and portfolio
+117 tests cover returns math, ingestion/validation robustness, covariance and portfolio
 stats, VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
 bootstrap, sensitivity interpretation, the rule-flag engine, the offline data layer, override
 validation, glossary completeness, documentation freshness, example-workbook ingestion,

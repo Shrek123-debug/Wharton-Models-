@@ -1,0 +1,106 @@
+"""Web API contract tests.
+
+The dashboard is the surface most people actually use, so its routes are tested as an API:
+what it returns, what it rejects, and that a completed run carries everything the UI needs to
+render an interpretable page (captions, cluster table, rule flags, exports).
+"""
+from __future__ import annotations
+
+import sys
+import time
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+PKG_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PKG_ROOT))
+
+from src.metric_glossary import ALIASES, GLOSSARY  # noqa: E402
+from web import app as webapp  # noqa: E402
+
+client = TestClient(webapp.app)
+
+
+@pytest.fixture(scope="module")
+def completed_job():
+    """One real offline analysis, reused by the tests that need a finished job."""
+    resp = client.post("/api/analyze", data={"options": '{"sims":400,"sensitivity_sims":200,"offline":"always"}'})
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        status = client.get(f"/api/job/{job_id}").json()
+        if status["status"] == "done":
+            return job_id
+        if status["status"] == "error":
+            pytest.fail(f"analysis job failed: {status.get('error')}")
+        time.sleep(1)
+    pytest.fail("analysis job did not finish in time")
+
+
+def test_glossary_route_serves_the_single_source_of_truth():
+    body = client.get("/api/glossary").json()
+    assert set(body["entries"]) == set(GLOSSARY)
+    assert set(body["aliases"]) == set(ALIASES)
+
+
+def test_selfcheck_route_reports_every_area():
+    body = client.get("/api/selfcheck").json()
+    areas = {c["area"] for c in body["checks"]}
+    assert {"python", "packages", "caches", "config", "input", "data", "outputs"} <= areas
+    assert body["ok"] is True, [c for c in body["checks"] if c["status"] != "ok"]
+
+
+def test_guide_route_returns_both_documents():
+    body = client.get("/api/guide").json()
+    assert len(body["tutorial"]) > 4000
+    assert len(body["metric_definitions"]) > 10000
+
+
+def test_config_route_exposes_the_data_controls_the_ui_offers():
+    body = client.get("/api/config").json()
+    for key in ("offline", "start_date", "end_date"):
+        assert key in body, f"/api/config is missing {key}"
+
+
+def test_invalid_options_payload_is_rejected_before_any_simulation():
+    assert client.post("/api/analyze", data={"options": "not json"}).status_code == 400
+    assert client.post("/api/analyze", data={"options": '[1,2,3]'}).status_code == 400
+
+
+def test_non_xlsx_upload_is_rejected():
+    resp = client.post("/api/analyze", files={"file": ("notes.txt", b"hello", "text/plain")},
+                       data={"options": "{}"})
+    assert resp.status_code == 400
+    assert "xlsx" in resp.json()["detail"]
+
+
+def test_export_endpoints_and_their_error_paths(completed_job):
+    assert client.get(f"/api/export/{completed_job}/xlsx").status_code == 200
+    assert client.get(f"/api/export/{completed_job}/docx").status_code == 200
+    assert client.get(f"/api/export/{completed_job}/pdf").status_code == 400
+    assert client.get("/api/export/doesnotexist/xlsx").status_code == 404
+
+
+def test_results_payload_carries_everything_the_ui_renders(completed_job):
+    payload = client.get(f"/api/results/{completed_job}").json()
+    for key in ("meta", "dashboard", "charts", "chart_notes", "tables", "texts", "rule_flags"):
+        assert key in payload, f"payload missing {key}"
+    assert set(payload["charts"]) == set(payload["chart_notes"]), "a chart shipped without a caption"
+    assert "clusters" in payload["tables"]
+    assert payload["meta"]["data_sources"], "payload must report where the prices came from"
+    assert payload["meta"]["offline_mode"] == "always"
+
+
+def test_job_table_stays_bounded():
+    """A long-lived server must not accumulate jobs forever."""
+    webapp.JOBS.clear()
+    for i in range(webapp.MAX_JOBS + 5):
+        webapp.JOBS[f"job{i}"] = {"id": f"job{i}", "status": "done", "started": 1000 + i}
+    webapp._prune_jobs()
+    assert len(webapp.JOBS) == webapp.MAX_JOBS
+    kept = {j for j in webapp.JOBS}
+    assert "job0" not in kept and f"job{webapp.MAX_JOBS + 4}" in kept
+    webapp.JOBS.clear()
