@@ -77,11 +77,15 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
     bond_idx = [i for i, t in enumerate(holdings["ticker"]) if ac[t] in ("Treasury", "Corporate Bond")]
     cash_idx = [i for i, t in enumerate(holdings["ticker"]) if ac[t] == "Cash"]
 
-    eq_w = holdings.loc[equity_idx, "weight"].sum()
-    bd_w = holdings.loc[bond_idx, "weight"].sum()
-    csh_w = holdings.loc[cash_idx, "weight"].sum()
+    # Positional (iloc) indexing throughout: `holdings` may carry a non-default index after
+    # rows are dropped (unavailable tickers, currency exclusions), so label-based .loc with
+    # integer positions silently selected the wrong rows.
+    def _w(idx_list) -> float:
+        return float(holdings.iloc[idx_list]["weight"].sum()) if idx_list else 0.0
+
+    eq_w, bd_w, csh_w = _w(equity_idx), _w(bond_idx), _w(cash_idx)
     gp = cfg["glide_path"]
-    start_eq = gp.get("start_equity") or float(eq_w)
+    start_eq = gp.get("start_equity") or eq_w
     years = list(range(start, glide_end + 1))
     targets = build_glide_targets(gp["method"] if gp["enabled"] else "none", years,
                                   start_eq, gp["end_equity"], bd_w, csh_w, gp.get("custom_targets"))
@@ -91,7 +95,7 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
     reserve = required_reserve_pv(rp["amount"], rp["first_year"], rp["last_year"], cf["reserve_discount_rate"])
     payment_months = [(y - start) * 12 for y in range(rp["first_year"], rp["last_year"] + 1)]
 
-    bond_w = holdings.loc[bond_idx, "weight"].values
+    bond_w = holdings.iloc[bond_idx]["weight"].values if bond_idx else np.array([])
     bond_blend = bond_w / bond_w.sum() if bond_w.sum() > 0 else np.ones(len(bond_idx)) / max(len(bond_idx), 1)
 
     class_base = np.zeros(len(holdings))
@@ -188,7 +192,13 @@ def run(input_path: str | None = None, config_path: str | None = None,
     holdings["sector"] = [assign_sector(t, holdings.iloc[i].get("sector")) for i, t in enumerate(holdings["ticker"])]
 
     # 8-9. market data
-    risky = [t for t in holdings["ticker"] if holdings.loc[holdings["ticker"] == t, "asset_class"].iloc[0] != "Cash"]
+    ac_of = dict(zip(holdings["ticker"], holdings["asset_class"]))
+    risky = [t for t in holdings["ticker"] if ac_of[t] != "Cash"]
+    if not risky:
+        raise PipelineError(
+            "Every holding is cash-like, so there is nothing to simulate: no return, volatility "
+            "or correlation can be estimated. Add at least one market-traded holding, or analyse "
+            "the cash position outside the simulation.")
     bench_ticks = [cfg["historical_data"]["benchmarks"]["equity"], cfg["historical_data"]["benchmarks"]["bonds"]]
     start = cfg["historical_data"]["start_date"]
     end = cfg["historical_data"].get("end_date")
@@ -215,7 +225,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
     if missing:
         dq_flags.append({"severity": "high", "ticker": ",".join(missing), "issue": "Ticker unavailable",
                          "detail": "No market data found; holdings excluded and remaining weights renormalized."})
-        holdings = holdings[~holdings["ticker"].isin(missing)].copy()
+        holdings = holdings[~holdings["ticker"].isin(missing)].copy().reset_index(drop=True)
         holdings["weight"] = holdings["weight"] / holdings["weight"].sum()
     # cash column earns the risk-free rate daily
     rf = cfg["risk"]["risk_free_rate"]
@@ -314,13 +324,21 @@ def run(input_path: str | None = None, config_path: str | None = None,
     attr = holding_attribution(holdings, port.monthly_returns)
 
     # 26-27. stress tests
-    stress_rows = []
+    stress_rows, stress_full, skipped_windows = [], [], []
     for c in cfg["stress_tests"]["crises"]:
         r = crisis_test(c["name"], c["start"], c["end"], port.portfolio_daily,
                         port.daily_returns, holdings.set_index("ticker")["weight"],
                         holdings, benchmarks)
+        if r.get("error"):
+            # the crisis predates this holding's price history: report it, do not fake numbers
+            skipped_windows.append(f"{c['name']} ({c['start']} to {c['end']}): {r['error']}")
+            continue
         stress_rows.append({k: v for k, v in r.items() if k not in ("holding_returns", "sector_contributions", "benchmarks")})
+        stress_full.append(r)
     stress_df = pd.DataFrame(stress_rows)
+    for s in skipped_windows:
+        dq_flags.append({"severity": "info", "ticker": "-", "issue": "Crisis window skipped",
+                         "detail": f"{s} — the configured window does not overlap the available price history."})
     ac_map = dict(zip(holdings["ticker"], holdings["asset_class"]))
     sec_map = dict(zip(holdings["ticker"], holdings["sector"]))
     hypo_rows = [hypothetical_test(n, s, holdings, ac_map, sec_map) for n, s in cfg["stress_tests"]["hypothetical"].items()]
@@ -417,7 +435,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         figs["bs_fan"] = charts.fan_chart(bs_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Historical Bootstrap", fig_dir, "10_bs_fan")
         figs["sens_success"] = charts.sensitivity_heatmap(sens, "prob_success", "Probability of Success (terminal > contributions)", fig_dir, "13a_sens_success")
         figs["sens_terminal"] = charts.sensitivity_heatmap(sens, "median_terminal", "Median Terminal Value", fig_dir, "13b_sens_terminal")
-        figs["crisis"] = charts.crisis_comparison([{k: v for k, v in r.items()} for r in _crisis_full(cfg, port, holdings, benchmarks)], fig_dir)
+        figs["crisis"] = charts.crisis_comparison(stress_full, fig_dir)
         figs["glide"] = charts.glide_path_chart(glide_targets, fig_dir)
         figs["sector_contrib"] = charts.contribution_chart(sec_tbl.reset_index().rename(columns={"sector": "label"})[["label", "contribution_12m"]], fig_dir, "13_sector_contribution", "Sector Contribution to 12m Return")
         figs["concentration"] = charts.risk_concentration_chart(holdings.set_index("ticker")["weight"], fig_dir)
@@ -642,14 +660,6 @@ def _apply_overrides(cfg: dict, overrides: dict) -> None:
     if unknown:
         raise PipelineError("Unknown override(s): " + ", ".join(unknown) +
                             ". Allowed: " + ", ".join(sorted(_ALLOWED_OVERRIDES)))
-
-
-def _crisis_full(cfg, port, holdings, benchmarks):
-    out = []
-    for c in cfg["stress_tests"]["crises"]:
-        out.append(crisis_test(c["name"], c["start"], c["end"], port.portfolio_daily,
-                               port.daily_returns, holdings.set_index("ticker")["weight"], holdings, benchmarks))
-    return out
 
 
 def _role(h) -> str:

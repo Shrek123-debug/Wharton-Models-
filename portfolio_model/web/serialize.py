@@ -191,6 +191,11 @@ def _sensitivity_heatmap(sens: pd.DataFrame, value: str, title: str, fmt: str) -
 
 
 def _crisis_bar(stress_rows: list[dict]) -> dict:
+    if not stress_rows:
+        return _fig([dict(type="scatter", x=[], y=[])],
+                    dict(title="Crisis tests: no configured window overlaps the price history",
+                         annotations=[dict(text="See the Data Quality tab for skipped crisis windows.",
+                                          x=0.5, y=0.5, showarrow=False)]))
     names = [r["crisis"] for r in stress_rows]
     data = [dict(type="bar", x=names, y=[(r["portfolio_return"] or 0) * 100 for r in stress_rows],
                  name="Portfolio return", marker_color="#4c72b0"),

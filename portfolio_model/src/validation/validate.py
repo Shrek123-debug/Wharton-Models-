@@ -138,7 +138,7 @@ def validate(holdings: pd.DataFrame, config: dict) -> ValidationResult:
             df[col] = np.nan
 
     df["asset_class"] = [
-        classify_asset_class(t, df.loc[i, "asset_class"] if "asset_class" in df.columns else None)
+        classify_asset_class(t, df.iloc[i]["asset_class"] if "asset_class" in df.columns else None)
         for i, t in enumerate(df["ticker"])
     ]
     if "sector" not in df.columns:

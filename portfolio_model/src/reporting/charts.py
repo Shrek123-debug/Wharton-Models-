@@ -158,6 +158,15 @@ def glide_path_chart(targets: pd.DataFrame, out_dir: Path) -> Path:
 
 
 def crisis_comparison(crises: list[dict], out_dir: Path) -> Path:
+    if not crises:
+        # every configured crisis window predates the available price history
+        fig, ax = plt.subplots(figsize=(7.5, 4))
+        ax.axis("off")
+        ax.text(0.5, 0.5, "No configured crisis window overlaps the available price history.\n"
+                          "See the Data Quality sheet for the skipped windows.",
+                ha="center", va="center", fontsize=10)
+        _save(fig, out_dir, "12_crisis_comparison")
+        return out_dir / "12_crisis_comparison.png"
     names = [c["crisis"] for c in crises]
     pret = [c["portfolio_return"] * 100 for c in crises]
     mdd = [c["max_drawdown"] * 100 for c in crises]
