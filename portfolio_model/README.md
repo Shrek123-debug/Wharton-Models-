@@ -9,29 +9,37 @@ web dashboard**. No LLM / AI API / cloud inference is used anywhere.
 ## Quick start
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install numpy pandas scipy yfinance matplotlib openpyxl python-docx pyyaml pytest pyarrow fastapi "uvicorn[standard]" python-multipart
+# from the repository root
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 cd portfolio_model
+python main.py --check          # environment + data self-test
 ```
 
 ### Web UI (recommended)
 
 ```bash
-../.venv/bin/python run_web.py            # opens http://127.0.0.1:8000
-../.venv/bin/python run_web.py --port 8080
+python run_web.py               # opens http://127.0.0.1:8000
+python run_web.py --port 8080
 ```
 
-1. Open the dashboard in your browser.
+1. Open the dashboard. The sidebar runs an **environment pre-flight** first and shows any
+   blocking problem with the command that fixes it.
 2. Upload a portfolio `.xlsx` (or press *Run with example portfolio*).
-3. Adjust run options (simulations, seed, MC model, glide method, bands, caps) and press **Run Analysis**.
-4. Explore 14 tabs: Overview, Holdings & Sectors, History, Monte Carlo, Markov Regime,
+3. Adjust run options (simulations, seed, MC model, glide method, bands, caps, bootstrap,
+   market-data mode) and press **Run Analysis**.
+4. Explore 16 tabs: Overview, Holdings & Sectors, History, Monte Carlo, Markov Regime,
    Historical Bootstrap, Model Comparison, Sensitivity, Stress Tests, Risk & Concentration,
-   Rebalance & Glide, Flags & Actions, Data Quality, Methodology.
-5. Interactive Plotly charts (donut, heatmaps, fan charts, distributions, sensitivity
-   heatmaps, glide area, scorecard) render from a locally vendored `plotly.min.js` — no CDN.
-6. Download the full **Excel workbook** (19 sheets incl. *Rule Flags*) and **written DOCX report**.
+   Rebalance & Glide, Flags & Actions, Data Quality, Methodology, **Tutorial**, **Definitions**.
+5. Interactive Plotly charts render from a locally vendored `plotly.min.js` — no CDN.
+6. Click the **_i_** button on any KPI card or table header to open that metric's definition:
+   formula, what it measures, how to read it for this portfolio, what to do, and the trap.
+7. Download the full **Excel workbook** (20 sheets incl. *Rule Flags* and *Definitions*) and
+   **written DOCX report**.
 
-All analysis runs on your machine. Market data is fetched once via yfinance and cached
-under `data/cache/`; subsequent runs work offline for cached tickers.
+All analysis runs on your machine. Prices resolve from `data/cache/`, then the network if
+allowed, then the committed snapshots in `data/offline/` — so a fresh clone runs everything
+with `--offline` and no network at all.
 
 ### Rule-based flags (non-AI recommendations)
 
@@ -46,9 +54,11 @@ dashboard *Flags & Actions* tab, the Excel *Rule Flags* sheet, and report sectio
 ### CLI
 
 ```bash
-../.venv/bin/python main.py                 # uses config/model_config.yaml input path
-../.venv/bin/python main.py --input ../models/stock_weighting_model.xlsx
-../.venv/bin/python main.py --sims 50000 --seed 7
+python main.py                 # uses config/model_config.yaml input path
+python main.py --check         # environment + data self-test
+python main.py --offline       # never touch the network
+python main.py --input data/input/example_portfolio_full.xlsx
+python main.py --sims 50000 --seed 7 --model student_t
 ```
 
 To use a different portfolio spreadsheet, either pass `--input path.xlsx` or change
@@ -102,18 +112,74 @@ histories flagged low-confidence.
 
 ## Outputs
 
-- `outputs/spreadsheet/portfolio_analysis.xlsx` — 19 sheets (dashboard, holdings, sectors,
+- `outputs/spreadsheet/portfolio_analysis.xlsx` — 20 sheets (dashboard, holdings, sectors,
   correlations, history, MC, Markov, bootstrap, comparison, sensitivity, risk, stress,
-  glide path, rebalancing, rule flags, theses, data quality, scorecard, stop-loss)
-- `outputs/report/portfolio_analysis_report.docx` — 23-section written report
-- `outputs/figures/` — 15 charts
-- `outputs/report/run_manifest.yaml` — config, seed, versions (reproducibility)
+  glide path, rebalancing, rule flags, theses, data quality, scorecard, stop-loss,
+  **definitions**)
+- `outputs/report/portfolio_analysis_report.docx` — 24-section written report
+- `outputs/figures/` — 16 charts
+- `outputs/report/run_manifest.yaml` — config, seed, versions, data provenance (reproducibility)
 
-## Tests
+## Architecture / module map
+
+```
+main.py                  CLI entry: argument parsing, exit codes, self-test
+run_web.py               uvicorn launcher for the FastAPI dashboard
+src/config.py            config loading + package-root-relative path resolution
+src/runtime_env.py       writable matplotlib / yfinance caches, headless MPLBACKEND
+src/selfcheck.py         environment + data readiness (CLI --check and /api/selfcheck)
+src/ingestion/ingest.py  header detection, column aliases, numeric coercion, formula detection
+src/validation/validate.py  weights resolution, currency/ticker exclusion, missing-weight errors
+src/market_data/fetch.py cache -> network -> bundled snapshot, with per-ticker provenance
+src/sectors/sectors.py   GICS assignment, sector tables, sector correlations
+src/portfolio/portfolio.py  rebalanced index, covariance (nearest-PSD), correlation, portfolio stats
+src/returns/returns.py   simple/log returns, monthly compounding, annualisation
+src/monte_carlo/mc.py    return generators + the shared path simulator (contributions, glide,
+                         rebalancing bands, 2033 split, reserve payments) + summary statistics
+src/bootstrap/bootstrap.py  block/iid bootstrap of real joint daily returns -> same path simulator
+src/markov/markov.py     5-regime classification, transition matrix, stationary distribution,
+                          durations, regime-driven simulation
+src/sensitivity/sensitivity.py  return-shift x volatility grid + grid interpretation
+src/stress_tests/stress.py  historical crisis replays + hypothetical asset-class shocks
+src/risk/risk.py         VaR/CVaR (historical + parametric), HHI, concentration, correlation
+                         clusters, drawdown distribution, recovery events
+src/risk/stoploss.py     hard/trailing stop backtests with re-entry
+src/attribution/attribution.py  holding/sector contribution attribution, P&L basis note
+src/optimization/optimize.py  constrained max-Sharpe diagnostic
+src/rules/rule_engine.py deterministic threshold rules -> flags with action + evidence
+src/metric_glossary.py   THE definition source: 70 metrics + label->definition aliases
+src/reporting/charts.py  16 matplotlib figures
+src/reporting/excel.py   20-sheet workbook incl. the Definitions sheet
+src/reporting/docx_report.py  written report
+src/pipeline.py          orchestration, glide targets, expected-return parameters, scorecard,
+                         recommendations, run manifest, whitelisted+validated overrides
+web/app.py               FastAPI routes: analyze/job/results/latest/export/glossary/selfcheck/guide
+web/serialize.py         pipeline results -> JSON payload (charts + tables + narrative)
+web/static/              index.html, app.js, styles.css, vendored plotly.min.js
+scripts/                 build_offline_dataset.py, build_definitions_doc.py, build_example_workbooks.py
+```
+
+## Scripts
 
 ```bash
-cd portfolio_model && ../.venv/bin/python -m pytest tests/ -q
+python scripts/build_offline_dataset.py       # (re)build the committed price snapshots
+python scripts/build_definitions_doc.py       # regenerate docs/METRIC_DEFINITIONS.md
+python scripts/build_definitions_doc.py --check   # fail if the page drifted from the glossary
+python scripts/build_example_workbooks.py     # regenerate the example input workbooks
 ```
+
+## Tests and CI
+
+```bash
+cd portfolio_model && python -m pytest tests -q
+```
+
+82 tests: returns math, ingestion/validation robustness, covariance and portfolio stats,
+VaR/CVaR, HHI, Markov transitions, Monte Carlo path mechanics, bootstrap, sensitivity
+interpretation, the rule-flag engine, the offline data layer, override validation, glossary
+completeness, documentation freshness, example-workbook ingestion, and an end-to-end offline
+pipeline run (determinism, no silent NaNs, every deliverable present). CI runs the suite with
+`PORTFOLIO_OFFLINE=1` on Python 3.11 and 3.12.
 
 ## Key modeling principles
 
