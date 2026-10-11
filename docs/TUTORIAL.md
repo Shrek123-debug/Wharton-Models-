@@ -160,6 +160,15 @@ something, it says what and how to fix it **before** you press Run.
 - **Tabs** — Overview, Holdings & Sectors, History, Monte Carlo, Markov Regime, Historical
   Bootstrap, Model Comparison, Sensitivity, Stress Tests, Risk & Concentration, Rebalance &
   Glide, Flags & Actions, Data Quality, Methodology, Tutorial, Definitions.
+- **"What this means for your portfolio"** — the first card on Overview. It states the
+  reserve-funding verdict, the tail shortfall against the typical outcome, how many
+  independent bets the holdings really represent, the tail cost, and the action behind the
+  highest-severity flags. Each claim carries its own *i* button.
+- **Chart captions** — under every figure: what it shows, how to read it, and the trap that
+  makes people read it wrong. Captions are generated from the same file as the Definitions
+  tab, so a chart can never ship without an explanation.
+- **Correlated clusters** — on Risk & Concentration, a table of holdings that move together,
+  with the weight they carry *combined*. This is where "12 holdings, 4 bets" becomes visible.
 - **The *i* buttons** — every KPI card and every table column header that has a definition
   shows a small *i*. Click it: the definition, how to read it for this portfolio, what to do
   about it, and the trap that makes people misread it.

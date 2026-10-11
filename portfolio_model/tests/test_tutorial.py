@@ -94,3 +94,22 @@ def test_glossary_lookup_maps_ui_labels():
     assert lookup("something not in the report at all") is None
     for key in list(GLOSSARY)[:10]:
         assert lookup(GLOSSARY[key]["label"]) == key
+
+
+def test_tutorial_lists_every_tab_the_ui_actually_renders():
+    """The tutorial's tab list and the dashboard cannot drift apart."""
+    import re
+
+    js = (PKG_ROOT / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    labels = re.findall(r'\{\s*id:\s*"[a-z_]+",\s*label:\s*"([^"]+)"', js)
+    assert len(labels) >= 12, f"could not read the tab list from app.js (found {len(labels)})"
+
+    text = " ".join((DOCS / "TUTORIAL.md").read_text(encoding="utf-8").split())
+    missing = [label for label in labels if label not in text]
+    assert not missing, f"TUTORIAL.md does not mention these tabs the UI renders: {missing}"
+
+
+def test_tutorial_documents_the_interpretability_features():
+    text = " ".join((DOCS / "TUTORIAL.md").read_text(encoding="utf-8").split())
+    for must in ("What this means for your portfolio", "Chart captions", "Correlated clusters"):
+        assert must in text, f"TUTORIAL.md does not document {must}"
