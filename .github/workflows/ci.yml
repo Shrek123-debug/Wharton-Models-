@@ -44,6 +44,13 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Check JavaScript syntax (dashboard and Apps Script)
+        run: |
+          for f in portfolio_model/web/static/*.js apps-script/*.js; do
+            echo "checking $f"
+            node --check "$f"
+          done
+
       - name: Environment self-test
         run: python portfolio_model/main.py --check
 
