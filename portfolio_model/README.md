@@ -171,6 +171,7 @@ python scripts/build_example_workbooks.py     # regenerate the example input wor
 ## Tests and CI
 
 ```bash
+pip install -r requirements-dev.txt        # includes pytest and ruff
 cd portfolio_model && python -m pytest tests -q
 ```
 

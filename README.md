@@ -36,6 +36,10 @@ python main.py --check                    # environment + data self-test, no sim
 `--check` verifies Python version, every package, the config, the input workbook, local
 price coverage and writable outputs. Each failure prints the command that fixes it.
 
+> Verified on a fresh clone: `git clone` → `pip install -r requirements.txt` → `--check` →
+> a full `--offline` run with the network blocked (proxy pointed at a dead port) completes
+> with all 16 figures and the same results as an online run.
+
 ---
 
 ## 2. First run
@@ -269,9 +273,13 @@ python scripts/build_definitions_doc.py --check   # fail if it has drifted from 
 ## 11. Tests and CI
 
 ```bash
-python -m pytest              # from the repo root (pytest.ini configured)
+pip install -r requirements-dev.txt   # requirements.txt + pytest + ruff
+python -m pytest                      # from the repo root (pytest.ini configured)
 cd portfolio_model && python -m pytest tests -q
 ```
+
+`requirements.txt` deliberately excludes test tooling so a plain install stays minimal;
+install `requirements-dev.txt` before running the tests or `ruff`.
 
 100 tests cover returns math, ingestion/validation robustness, covariance and portfolio
 stats, VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
