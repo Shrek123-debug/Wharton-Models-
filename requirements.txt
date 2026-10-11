@@ -1,0 +1,37 @@
+# Portfolio Modeling Agent — runtime dependencies
+#
+# Install:
+#   python -m venv .venv
+#   source .venv/bin/activate            # Windows: .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# Verified on Python 3.12 with the exact versions in requirements.lock.txt.
+# Floors are what the code actually needs; ceilings guard against a future major
+# release silently changing an API the engines depend on.
+
+# Core numerics / tables
+numpy>=1.24,<3
+pandas>=2.0,<4
+scipy>=1.10,<2
+
+# Spreadsheet + document I/O
+openpyxl>=3.1,<4          # read input .xlsx, write the output workbook
+python-docx>=1.1,<2       # write the Word report
+
+# Configuration
+PyYAML>=6.0,<7
+
+# Figures
+matplotlib>=3.7,<4
+
+# Parquet price snapshots (data/cache, data/offline)
+pyarrow>=14.0,<27
+
+# Web UI (run_web.py)
+fastapi>=0.110,<1
+uvicorn>=0.27,<1
+python-multipart>=0.0.9   # file upload endpoint
+
+# Live market data (OPTIONAL: only needed to download or refresh history).
+# The models run fully offline from data/offline without this package.
+yfinance>=0.2.40,<2

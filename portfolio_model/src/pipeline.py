@@ -165,7 +165,8 @@ def build_return_params(cfg: dict, holdings: pd.DataFrame, port, rf: float) -> t
 
 # ---------------------------------------------------------------- main run
 def run(input_path: str | None = None, config_path: str | None = None,
-        out_dir: str | None = None, overrides: dict | None = None) -> dict:
+        out_dir: str | None = None, overrides: dict | None = None,
+        render_charts: bool = True) -> dict:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = load_config(config_path)
     if overrides:
@@ -192,9 +193,22 @@ def run(input_path: str | None = None, config_path: str | None = None,
     start = cfg["historical_data"]["start_date"]
     end = cfg["historical_data"].get("end_date")
     cache = resolve(cfg["historical_data"]["cache_dir"])
-    frames = fetch_history(risky + bench_ticks, start, end, cache)
-    dq_flags = [{"severity": "info", "ticker": t, "issue": "Data status", "detail": str(meta)}
-                for t, meta in pd.read_csv(cache / "_fetch_meta.csv", index_col=0).to_dict("index").items()]
+    hd = cfg["historical_data"]
+    fetch_res = fetch_history(
+        risky + bench_ticks, start, end, cache,
+        offline=hd.get("offline"),
+        bundled_dir=resolve(hd.get("bundled_dir") or "data/offline"),
+        max_age_days=float(hd.get("max_cache_age_days", 7)),
+        allow_stale_cache=bool(hd.get("allow_stale_cache", True)),
+    )
+    frames = fetch_res.frames
+    dq_flags = [{"severity": "info", "ticker": row["ticker"], "issue": "Data provenance",
+                 "detail": (f"source={row['source']} | rows={row['rows']} | inception={row['inception']} "
+                            f"| as_of={row['data_as_of']} | {row['note']}")}
+                for row in fetch_res.as_rows()]
+    for t in fetch_res.missing():
+        dq_flags.append({"severity": "high", "ticker": t, "issue": "Market data unavailable",
+                         "detail": fetch_res.provenance[t]["note"]})
 
     prices = align_price_frames({t: frames[t] for t in risky if t in frames and len(frames[t])})
     missing = [t for t in holdings["ticker"] if t != "CASH" and t not in prices.columns]
@@ -391,22 +405,25 @@ def run(input_path: str | None = None, config_path: str | None = None,
 
     # 33. charts
     figs = {}
-    figs["allocation"] = charts.allocation_donut(holdings, fig_dir)
-    figs["sector"] = charts.sector_allocation(sec_tbl, fig_dir)
-    figs["cumulative"] = charts.cumulative_return(port.portfolio_value_index, benchmarks, fig_dir)
-    figs["drawdown"] = charts.drawdown_chart(port.portfolio_value_index, fig_dir)
-    figs["correlation"] = charts.correlation_heatmap(port.corr, fig_dir)
-    figs["mc_terminal"] = charts.terminal_distribution(mc["terminal_2033"], "Monte Carlo", fig_dir, "06_mc_terminal")
-    figs["mc_fan"] = charts.fan_chart(mc_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Monte Carlo", fig_dir, "07_mc_fan")
-    figs["bs_terminal"] = charts.terminal_distribution(bs["terminal_2033"], "Historical Bootstrap", fig_dir, "08_bs_terminal")
-    figs["bs_fan"] = charts.fan_chart(bs_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Historical Bootstrap", fig_dir, "10_bs_fan")
-    figs["sens_success"] = charts.sensitivity_heatmap(sens, "prob_success", "Probability of Success (terminal > contributions)", fig_dir, "13a_sens_success")
-    figs["sens_terminal"] = charts.sensitivity_heatmap(sens, "median_terminal", "Median Terminal Value", fig_dir, "13b_sens_terminal")
-    figs["crisis"] = charts.crisis_comparison([{k: v for k, v in r.items()} for r in _crisis_full(cfg, port, holdings, benchmarks)], fig_dir)
-    figs["glide"] = charts.glide_path_chart(glide_targets, fig_dir)
-    figs["sector_contrib"] = charts.contribution_chart(sec_tbl.reset_index().rename(columns={"sector": "label"})[["label", "contribution_12m"]], fig_dir, "13_sector_contribution", "Sector Contribution to 12m Return")
-    figs["concentration"] = charts.risk_concentration_chart(holdings.set_index("ticker")["weight"], fig_dir)
-    figs["comparison"] = charts.model_comparison_table_image(comparison.to_dict("records"), fig_dir)
+    if render_charts:
+        figs["allocation"] = charts.allocation_donut(holdings, fig_dir)
+        figs["sector"] = charts.sector_allocation(sec_tbl, fig_dir)
+        figs["cumulative"] = charts.cumulative_return(port.portfolio_value_index, benchmarks, fig_dir)
+        figs["drawdown"] = charts.drawdown_chart(port.portfolio_value_index, fig_dir)
+        figs["correlation"] = charts.correlation_heatmap(port.corr, fig_dir)
+        figs["mc_terminal"] = charts.terminal_distribution(mc["terminal_2033"], "Monte Carlo", fig_dir, "06_mc_terminal")
+        figs["mc_fan"] = charts.fan_chart(mc_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Monte Carlo", fig_dir, "07_mc_fan")
+        figs["bs_terminal"] = charts.terminal_distribution(bs["terminal_2033"], "Historical Bootstrap", fig_dir, "08_bs_terminal")
+        figs["bs_fan"] = charts.fan_chart(bs_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Historical Bootstrap", fig_dir, "10_bs_fan")
+        figs["sens_success"] = charts.sensitivity_heatmap(sens, "prob_success", "Probability of Success (terminal > contributions)", fig_dir, "13a_sens_success")
+        figs["sens_terminal"] = charts.sensitivity_heatmap(sens, "median_terminal", "Median Terminal Value", fig_dir, "13b_sens_terminal")
+        figs["crisis"] = charts.crisis_comparison([{k: v for k, v in r.items()} for r in _crisis_full(cfg, port, holdings, benchmarks)], fig_dir)
+        figs["glide"] = charts.glide_path_chart(glide_targets, fig_dir)
+        figs["sector_contrib"] = charts.contribution_chart(sec_tbl.reset_index().rename(columns={"sector": "label"})[["label", "contribution_12m"]], fig_dir, "13_sector_contribution", "Sector Contribution to 12m Return")
+        figs["concentration"] = charts.risk_concentration_chart(holdings.set_index("ticker")["weight"], fig_dir)
+        figs["comparison"] = charts.model_comparison_table_image(comparison.to_dict("records"), fig_dir)
+    else:
+        log.info("Chart rendering skipped (--no-charts)")
 
     # assemble sheets
     holdings_sheet = _holdings_sheet(holdings, port, params, var_table, clusters, confidence, attr)
@@ -447,11 +464,16 @@ def run(input_path: str | None = None, config_path: str | None = None,
                                       "detail": "Tax effects are excluded because sufficient tax-lot information was not supplied."}]
     dq_df = pd.DataFrame(dq_all)
 
+    prov_rows = fetch_res.as_rows()
+    as_of = max((r["data_as_of"] for r in prov_rows if r["data_as_of"] and r["data_as_of"] != "-"), default="-")
     meta = {"generated_utc": generated, "seed": cfg["simulation"]["random_seed"],
             "n_sims": cfg["simulation"]["n_simulations"], "version": VERSION,
             "portfolio_name": "Laura Gao Portfolio", "input": str(input_path),
             "python": sys.version.split()[0], "platform": platform.platform(),
-            "weights_source": val.weights_source}
+            "weights_source": val.weights_source,
+            "data_as_of": as_of,
+            "data_sources": ", ".join(sorted({r["source"] for r in prov_rows})),
+            "offline_mode": str(cfg["historical_data"].get("offline") or "auto")}
 
     var95 = var_table[var_table.confidence == 0.95].iloc[0]
     dashboard = [
@@ -491,6 +513,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "corr": port.corr, "sec_corr": sec_corr, "attr": attr, "conc": conc,
         "var_table": var_table, "dd_dist": dd_dist, "clusters": clusters,
         "confidence": confidence, "figures": figs, "opt": opt,
+        "data_provenance": pd.DataFrame(prov_rows),
         "exec_summary": exec_lines,
         "overview_text": f"{len(holdings)} holdings; total invested contributions ${total_contrib:,} (2027-2028); "
                          f"weights {val.weights_source}; equity {cur_cls['Equity']:.0%}, bonds {cur_cls['Bonds']:.0%}, cash {cur_cls['Cash']:.0%}.",
@@ -527,48 +550,98 @@ def run(input_path: str | None = None, config_path: str | None = None,
 
 
 # ---------------------------------------------------------------- helpers
+_ALLOWED_OVERRIDES = {
+    "sims", "seed", "model", "student_t_dof", "glide_method", "glide_end_equity",
+    "rebalancing_enabled", "band", "transaction_cost", "corr_threshold", "max_position",
+    "max_sector", "max_group", "min_cash", "risk_free_rate", "inflation_base",
+    "bootstrap_method", "block_size_days", "sensitivity_sims", "offline",
+    "max_cache_age_days", "start_date", "end_date",
+}
+
+
+class PipelineError(RuntimeError):
+    """Raised for user-facing problems (bad input, bad override, unusable data)."""
+
+
+def _ov_int(overrides: dict, key: str, target: dict, path: str, lo: int, hi: int) -> None:
+    if key not in overrides:
+        return
+    try:
+        val = int(float(overrides[key]))
+    except (TypeError, ValueError):
+        raise PipelineError(f"Override '{key}' must be a whole number, got {overrides[key]!r}") from None
+    if not (lo <= val <= hi):
+        raise PipelineError(f"Override '{key}' must be between {lo} and {hi}, got {val}")
+    target[path] = val
+
+
+def _ov_float(overrides: dict, key: str, target: dict, path: str, lo: float, hi: float) -> None:
+    if key not in overrides:
+        return
+    try:
+        val = float(overrides[key])
+    except (TypeError, ValueError):
+        raise PipelineError(f"Override '{key}' must be a number, got {overrides[key]!r}") from None
+    if not (lo <= val <= hi):
+        raise PipelineError(f"Override '{key}' must be between {lo} and {hi}, got {val}")
+    target[path] = val
+
+
+def _ov_choice(overrides: dict, key: str, target: dict, path: str, allowed: tuple[str, ...]) -> None:
+    if key not in overrides:
+        return
+    val = str(overrides[key]).strip().lower()
+    if val not in allowed:
+        raise PipelineError(f"Override '{key}' must be one of {', '.join(allowed)}; got {overrides[key]!r}")
+    target[path] = val
+
+
 def _apply_overrides(cfg: dict, overrides: dict) -> None:
-    """Whitelisted runtime config overrides (used by CLI and the web UI)."""
+    """Whitelisted, validated runtime overrides (used by CLI and the web UI).
+
+    Every accepted key is clamped to a sane range so a mistyped UI value produces a
+    clear message instead of a crash or a silently absurd simulation.
+    """
+    sim, boot, risk = cfg["simulation"], cfg["bootstrap"], cfg["risk"]
+    reb, glide, hist = cfg["rebalancing"], cfg["glide_path"], cfg["historical_data"]
+
+    _ov_int(overrides, "sims", sim, "n_simulations", 200, 200_000)
     if "sims" in overrides:
-        cfg["simulation"]["n_simulations"] = int(overrides["sims"])
-        cfg["bootstrap"]["n_simulations"] = int(overrides["sims"])
-    if "seed" in overrides:
-        cfg["simulation"]["random_seed"] = int(overrides["seed"])
-    if "model" in overrides:
-        cfg["simulation"]["model"] = str(overrides["model"])
-    if "student_t_dof" in overrides:
-        cfg["simulation"]["student_t_dof"] = int(overrides["student_t_dof"])
-    if "glide_method" in overrides:
-        cfg["glide_path"]["method"] = str(overrides["glide_method"])
-        cfg["glide_path"]["enabled"] = cfg["glide_path"]["method"] != "none"
-    if "glide_end_equity" in overrides:
-        cfg["glide_path"]["end_equity"] = float(overrides["glide_end_equity"])
+        boot["n_simulations"] = sim["n_simulations"]
+    _ov_int(overrides, "seed", sim, "random_seed", 0, 2**31 - 1)
+    _ov_choice(overrides, "model", sim, "model", ("gaussian", "lognormal", "student_t", "historical_residual"))
+    _ov_int(overrides, "student_t_dof", sim, "student_t_dof", 3, 30)
+    _ov_choice(overrides, "glide_method", glide, "method", ("none", "linear", "accelerating", "stepwise", "custom"))
+    glide["enabled"] = glide["method"] != "none"
+    _ov_float(overrides, "glide_end_equity", glide, "end_equity", 0.0, 1.0)
     if "rebalancing_enabled" in overrides:
-        cfg["rebalancing"]["enabled"] = bool(overrides["rebalancing_enabled"])
-    if "band" in overrides:
-        cfg["rebalancing"]["band"] = float(overrides["band"])
-    if "transaction_cost" in overrides:
-        cfg["rebalancing"]["transaction_cost"] = float(overrides["transaction_cost"])
-    if "corr_threshold" in overrides:
-        cfg["risk"]["correlation_threshold"] = float(overrides["corr_threshold"])
-    if "max_position" in overrides:
-        cfg["risk"]["max_position_weight"] = float(overrides["max_position"])
-    if "max_sector" in overrides:
-        cfg["risk"]["max_sector_weight"] = float(overrides["max_sector"])
-    if "max_group" in overrides:
-        cfg["risk"]["max_correlated_group_weight"] = float(overrides["max_group"])
-    if "min_cash" in overrides:
-        cfg["risk"]["min_cash_weight"] = float(overrides["min_cash"])
-    if "risk_free_rate" in overrides:
-        cfg["risk"]["risk_free_rate"] = float(overrides["risk_free_rate"])
-    if "inflation_base" in overrides:
-        cfg["risk"]["inflation_base"] = float(overrides["inflation_base"])
-    if "bootstrap_method" in overrides:
-        cfg["bootstrap"]["method"] = str(overrides["bootstrap_method"])
-    if "block_size_days" in overrides:
-        cfg["bootstrap"]["block_size_days"] = int(overrides["block_size_days"])
-    if "sensitivity_sims" in overrides:
-        cfg["sensitivity"]["n_simulations"] = int(overrides["sensitivity_sims"])
+        reb["enabled"] = bool(overrides["rebalancing_enabled"])
+    _ov_float(overrides, "band", reb, "band", 0.0, 0.50)
+    _ov_float(overrides, "transaction_cost", reb, "transaction_cost", 0.0, 0.05)
+    _ov_float(overrides, "corr_threshold", risk, "correlation_threshold", 0.0, 1.0)
+    _ov_float(overrides, "max_position", risk, "max_position_weight", 0.01, 1.0)
+    _ov_float(overrides, "max_sector", risk, "max_sector_weight", 0.01, 1.0)
+    _ov_float(overrides, "max_group", risk, "max_correlated_group_weight", 0.01, 1.0)
+    _ov_float(overrides, "min_cash", risk, "min_cash_weight", 0.0, 1.0)
+    _ov_float(overrides, "risk_free_rate", risk, "risk_free_rate", -0.05, 0.20)
+    _ov_float(overrides, "inflation_base", risk, "inflation_base", -0.05, 0.20)
+    _ov_choice(overrides, "bootstrap_method", boot, "method", ("iid", "block"))
+    _ov_int(overrides, "block_size_days", boot, "block_size_days", 1, 252)
+    _ov_int(overrides, "sensitivity_sims", cfg["sensitivity"], "n_simulations", 200, 50_000)
+    _ov_choice(overrides, "offline", hist, "offline", ("auto", "always", "never"))
+    _ov_int(overrides, "max_cache_age_days", hist, "max_cache_age_days", 0, 3650)
+    for key, path in (("start_date", "start_date"), ("end_date", "end_date")):
+        if key in overrides and overrides[key]:
+            val = str(overrides[key]).strip()
+            try:
+                pd.Timestamp(val)
+            except Exception:
+                raise PipelineError(f"Override '{key}' must look like YYYY-MM-DD, got {overrides[key]!r}") from None
+            hist[path] = val
+    unknown = sorted(set(overrides) - _ALLOWED_OVERRIDES)
+    if unknown:
+        raise PipelineError("Unknown override(s): " + ", ".join(unknown) +
+                            ". Allowed: " + ", ".join(sorted(_ALLOWED_OVERRIDES)))
 
 
 def _crisis_full(cfg, port, holdings, benchmarks):
