@@ -58,6 +58,21 @@ def build_report(path: Path, results: dict) -> Path:
     _p(doc, "All forward-looking figures are model estimates, simulation results, scenarios, or assumptions — "
             "never guarantees.", italic=True)
 
+    # How to read this report
+    _h(doc, "How to read this report")
+    _p(doc, "Read it as answers to six questions rather than front to back:", italic=True)
+    _table(doc, pd.DataFrame([
+        {"question": "Can the 2033 obligation actually be funded?", "see": "Section 14 Model Comparison; Section 11 Risk"},
+        {"question": "How bad can it get?", "see": "Section 7 Monte Carlo; Section 9 Historical Bootstrap"},
+        {"question": "Is this actually diversified?", "see": "Section 2 Portfolio Overview; Section 11 Risk"},
+        {"question": "Which decisions dominate the outcome?", "see": "Section 19.5 Rule-Based Flags"},
+        {"question": "How much do my assumptions matter?", "see": "Section 15 Sensitivity"},
+        {"question": "What would a real crisis do to this mix?", "see": "Section 16 Stress Tests"},
+        {"question": "What does any given number mean?", "see": "Appendix A Metric Definitions"},
+    ]))
+    _p(doc, "Every metric named in this report is defined in Appendix A, generated from the same source "
+            "file as the workbook Definitions sheet and the web UI Definitions tab.", italic=True)
+
     # 1 Executive Summary
     _h(doc, "1. Executive Summary")
     for line in results["exec_summary"]:
@@ -212,6 +227,20 @@ def build_report(path: Path, results: dict) -> Path:
     _h(doc, "Monitoring Checklist")
     for line in results["monitoring"]:
         _p(doc, f"- [ ] {line}")
+
+    # Appendix A: metric definitions (same source as the workbook sheet and the web UI tab)
+    from ..metric_glossary import GLOSSARY
+
+    doc.add_page_break()
+    _h(doc, "Appendix A. Metric Definitions")
+    _p(doc, "Generated from portfolio_model/src/metric_glossary.py — the same source as the workbook "
+            "Definitions sheet and the web UI Definitions tab. The 'Trap' column is the way this metric "
+            "is most often misread.", italic=True)
+    _table(doc, pd.DataFrame([
+        {"metric": e["label"], "what_it_is": e["formula"], "how_to_read_it": e["read_as"],
+         "trap": e["caveat"]}
+        for e in GLOSSARY.values()
+    ]), max_rows=len(GLOSSARY))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(path)

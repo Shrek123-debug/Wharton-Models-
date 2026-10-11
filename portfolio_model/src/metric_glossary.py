@@ -476,7 +476,7 @@ GLOSSARY: dict[str, dict] = {
         "meaning": "The loss that is not exceeded in (1 - confidence) of periods - a threshold, not an average.",
         "read_as": "VaR 95% = 4% means 19 months in 20 lose less than 4%; it says nothing about how bad the 20th month is.",
         "action": "Always read VaR together with CVaR, which measures the part VaR ignores.",
-        "caveat": "Sign convention: VaR is reported as a positive loss. A 'VaR 95% = 0.04' means a 4% loss, not a 4% gain. Historical, parametric and Monte Carlo VaR are computed on different horizons and bases - never compare them directly.",
+        "caveat": "Sign convention: VaR is reported as a positive loss. A 'VaR 95% = 0.04' means a 4% loss, not a 4% gain; a NEGATIVE VaR means the 5th-percentile outcome is itself a gain. Historical, parametric and Monte Carlo VaR are computed on different horizons and bases - never compare them directly.",
     },
     "cvar": {
         "label": "CVaR / expected shortfall",
@@ -485,7 +485,7 @@ GLOSSARY: dict[str, dict] = {
         "meaning": "The average loss in the bad tail - what you actually lose when the bad case happens.",
         "read_as": "CVaR is the number that should size a reserve. If CVaR95 is 30%, the worst 5% of outcomes lose a third on average.",
         "action": "The rule engine raises a HIGH tail flag above 30% terminal CVaR95.",
-        "caveat": "Terminal CVaR is measured on the 2033 outcome relative to contributions over six years, not on a month. It is a horizon loss, not a monthly one.",
+        "caveat": "Terminal CVaR is measured on the 2033 outcome relative to contributions over six years, not on a month. It is a horizon loss, not a monthly one. A NEGATIVE CVaR is not an error: it means that even the worst 5% of simulated outcomes are, on average, still gains - the tail is not loss-making under these assumptions.",
     },
     "var_horizon_warning": {
         "label": "Horizon warning (VaR rows)",

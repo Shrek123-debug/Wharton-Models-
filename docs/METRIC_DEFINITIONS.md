@@ -535,7 +535,7 @@ The most misread rows in the workbook. Read the horizon and the basis before com
 - **What it measures:** The loss that is not exceeded in (1 - confidence) of periods - a threshold, not an average.
 - **How to read it for this portfolio:** VaR 95% = 4% means 19 months in 20 lose less than 4%; it says nothing about how bad the 20th month is.
 - **What to do about it:** Always read VaR together with CVaR, which measures the part VaR ignores.
-- **Trap:** Sign convention: VaR is reported as a positive loss. A 'VaR 95% = 0.04' means a 4% loss, not a 4% gain. Historical, parametric and Monte Carlo VaR are computed on different horizons and bases - never compare them directly.
+- **Trap:** Sign convention: VaR is reported as a positive loss. A 'VaR 95% = 0.04' means a 4% loss, not a 4% gain; a NEGATIVE VaR means the 5th-percentile outcome is itself a gain. Historical, parametric and Monte Carlo VaR are computed on different horizons and bases - never compare them directly.
 
 ### CVaR / expected shortfall
 
@@ -545,7 +545,7 @@ The most misread rows in the workbook. Read the horizon and the basis before com
 - **What it measures:** The average loss in the bad tail - what you actually lose when the bad case happens.
 - **How to read it for this portfolio:** CVaR is the number that should size a reserve. If CVaR95 is 30%, the worst 5% of outcomes lose a third on average.
 - **What to do about it:** The rule engine raises a HIGH tail flag above 30% terminal CVaR95.
-- **Trap:** Terminal CVaR is measured on the 2033 outcome relative to contributions over six years, not on a month. It is a horizon loss, not a monthly one.
+- **Trap:** Terminal CVaR is measured on the 2033 outcome relative to contributions over six years, not on a month. It is a horizon loss, not a monthly one. A NEGATIVE CVaR is not an error: it means that even the worst 5% of simulated outcomes are, on average, still gains - the tail is not loss-making under these assumptions.
 
 ### Horizon warning (VaR rows)
 

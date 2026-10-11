@@ -127,6 +127,64 @@ const TABS = [
   { id: "defs", label: "Definitions", render: renderDefs },
 ];
 
+/* ---------------------------------------------------------------- interpretation */
+function compValue(rows, metric, col) {
+  const r = rows.find(x => String(x.metric).toLowerCase() === metric.toLowerCase());
+  return r ? r[col] : null;
+}
+
+function interpretationCard() {
+  const p = state.payload;
+  const rows = p.tables.comparison || [];
+  const mc = "Monte Carlo", bs = "Historical Bootstrap";
+  const lines = [];
+
+  const reserve = [compValue(rows, "Probability reserve fully funded", mc),
+                   compValue(rows, "Probability reserve fully funded", bs)].filter(v => typeof v === "number");
+  if (reserve.length) {
+    const worst = Math.min(...reserve);
+    const verdict = worst >= 0.9 ? "the reserve obligation looks fundable"
+      : worst >= 0.7 ? "the reserve obligation is only partly secure"
+      : "the reserve obligation is at real risk";
+    lines.push(`<b>Can the 2033 reserve be funded?</b> ${verdict}: the engines give ${reserve.map(pct).join(" and ")}, `
+      + `and the lower one is the number to plan against. ${infoBtn("Probability reserve fully funded")}`);
+  }
+
+  const p5 = compValue(rows, "5th percentile", bs), med = compValue(rows, "Median terminal value (2033)", bs);
+  if (typeof p5 === "number" && typeof med === "number") {
+    lines.push(`<b>How bad can it get?</b> In the bad tail of real historical sequences the 2033 value is `
+      + `${money(p5)} versus a typical ${money(med)} — a ${(1 - p5 / med) * 100 | 0}% shortfall in the unlucky case. `
+      + `${infoBtn("terminal_percentiles")}`);
+  }
+
+  const conc = (p.tables.holdings || []).length;
+  const eff = (p.tables.risk || []).find(r => /effective|HHI/i.test(String(r.metric || r.Metric)));
+  if (eff) {
+    const v = eff.value ?? eff.Value;
+    lines.push(`<b>Is this diversified?</b> ${conc} holdings behave like <b>${Number(v).toFixed(1)} independent bets</b>. `
+      + `${infoBtn("Effective number of independent bets")}`);
+  }
+
+  const cvar = compValue(rows, "CVaR 95% (terminal)", bs);
+  if (typeof cvar === "number") {
+    const tail = cvar > 0
+      ? `the average loss is ${pct(cvar)} of invested capital`
+      : `the average outcome is still a gain of ${pct(-cvar)} of invested capital`;
+    lines.push(`<b>What is the tail cost?</b> In the worst 5% of bootstrap outcomes, ${tail}. `
+      + `Size the reserve from the tail, not from the median. ${infoBtn("CVaR 95% (terminal)")}`);
+  }
+
+  const top = (p.rule_flags || []).filter(f => f.severity === "HIGH" || f.severity === "CRITICAL").slice(0, 2);
+  top.forEach(f => lines.push(`<b>${esc(f.id)} (${f.severity}):</b> ${esc(f.action)}`));
+
+  if (!lines.length) lines.push("No interpretation available for this run.");
+  return `<div class="card interpret-card">
+    <div class="sub-head">What this means for your portfolio</div>
+    <p class="mini-note">Plain-language reading of the numbers below. Each claim links to the metric's definition.</p>
+    ${lines.map(l => `<p class="interp-line">${l}</p>`).join("")}
+  </div>`;
+}
+
 function renderOverview() {
   const p = state.payload;
   const counts = {};
@@ -134,6 +192,7 @@ function renderOverview() {
   const chips = ["CRITICAL", "HIGH", "WARNING", "MONITOR"].map(s =>
     `<span class="sev-badge sev-${s}">${s}: ${counts[s] || 0}</span>`).join(" ");
   return `
+    ${interpretationCard()}
     <div class="grid2">
       <div class="card">${chart("allocation")}</div>
       <div class="card">${chart("sector_bar")}</div>
