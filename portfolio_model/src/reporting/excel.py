@@ -226,6 +226,24 @@ def build_workbook(path: Path, results: dict) -> Path:
               pct_cols=("cagr", "vol", "max_drawdown", "total_return", "missed_upside"))
     _autosize(ws)
 
+    # ---- Sheet 19: Metric Definitions (rendered from src/metric_glossary.py)
+    from ..metric_glossary import GLOSSARY
+
+    ws = wb.create_sheet("Definitions")
+    def_rows = [{"key": k, "metric": e["label"], "unit": e["unit"], "what_it_is": e["formula"],
+                 "what_it_measures": e["meaning"], "how_to_read_it": e["read_as"],
+                 "what_to_do": e["action"], "trap": e["caveat"]}
+                for k, e in GLOSSARY.items()]
+    end = _write_df(ws, pd.DataFrame(def_rows), 1,
+                    "Metric Definitions — what every number in this workbook means")
+    ws.cell(row=end, column=1,
+            value="Narrative version with the ten most common misreadings: docs/METRIC_DEFINITIONS.md "
+                  "(generated from the same source file).").font = Font(italic=True, size=9)
+    for row in ws.iter_rows(min_row=4, max_col=8):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws, max_w=58)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     return path

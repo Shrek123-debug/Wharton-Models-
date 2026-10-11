@@ -62,7 +62,7 @@ def build_report(path: Path, results: dict) -> Path:
     _h(doc, "1. Executive Summary")
     for line in results["exec_summary"]:
         _p(doc, line)
-    _img(doc, results["figures"]["allocation"])
+    _img(doc, results["figures"].get("allocation"))
 
     # 2 Portfolio Overview
     _h(doc, "2. Portfolio Overview")
@@ -73,7 +73,7 @@ def build_report(path: Path, results: dict) -> Path:
     # 3 Current Allocation
     _h(doc, "3. Current Allocation")
     _table(doc, results["sector_sheet"][["weight", "n_holdings"]], pct_cols=("weight",))
-    _img(doc, results["figures"]["sector"])
+    _img(doc, results["figures"].get("sector"))
 
     # 4 Investment Thesis
     _h(doc, "4. Investment Thesis")
@@ -83,8 +83,8 @@ def build_report(path: Path, results: dict) -> Path:
     # 5 Historical Performance
     _h(doc, "5. Historical Performance")
     _p(doc, results["historical_text"])
-    _img(doc, results["figures"]["cumulative"])
-    _img(doc, results["figures"]["drawdown"])
+    _img(doc, results["figures"].get("cumulative"))
+    _img(doc, results["figures"].get("drawdown"))
 
     # 6 Risk Analysis
     _h(doc, "6. Risk Analysis")
@@ -93,19 +93,19 @@ def build_report(path: Path, results: dict) -> Path:
 
     # 7 Correlation Analysis
     _h(doc, "7. Correlation Analysis")
-    _img(doc, results["figures"]["correlation"])
+    _img(doc, results["figures"].get("correlation"))
     _p(doc, results["correlation_text"])
 
     # 8 Concentration Analysis
     _h(doc, "8. Concentration Analysis")
     _p(doc, results["concentration_text"])
-    _img(doc, results["figures"]["concentration"])
+    _img(doc, results["figures"].get("concentration"))
 
     # 9 Monte Carlo Results
     _h(doc, "9. Monte Carlo Results")
     _p(doc, results["mc_text"])
-    _img(doc, results["figures"]["mc_terminal"])
-    _img(doc, results["figures"]["mc_fan"])
+    _img(doc, results["figures"].get("mc_terminal"))
+    _img(doc, results["figures"].get("mc_fan"))
 
     # 10 Markov Model Results
     _h(doc, "10. Markov Model Results")
@@ -115,8 +115,8 @@ def build_report(path: Path, results: dict) -> Path:
     # 11 Historical Bootstrap Results
     _h(doc, "11. Historical Bootstrap Results")
     _p(doc, results["bs_text"])
-    _img(doc, results["figures"]["bs_terminal"])
-    _img(doc, results["figures"]["bs_fan"])
+    _img(doc, results["figures"].get("bs_terminal"))
+    _img(doc, results["figures"].get("bs_fan"))
 
     # 12 Model Comparison
     _h(doc, "12. Model Comparison")
@@ -126,13 +126,13 @@ def build_report(path: Path, results: dict) -> Path:
     # 13 Sensitivity Analysis
     _h(doc, "13. Sensitivity Analysis")
     _p(doc, results["sensitivity_text"])
-    _img(doc, results["figures"]["sens_success"])
-    _img(doc, results["figures"]["sens_terminal"])
+    _img(doc, results["figures"].get("sens_success"))
+    _img(doc, results["figures"].get("sens_terminal"))
 
     # 14 Crisis Stress Tests
     _h(doc, "14. Crisis Stress Tests")
     _table(doc, results["stress_sheet"], pct_cols=("portfolio_return", "max_drawdown"))
-    _img(doc, results["figures"]["crisis"])
+    _img(doc, results["figures"].get("crisis"))
     _h(doc, "14.1 Hypothetical Forward Scenarios (assumptions, not forecasts)", 2)
     _table(doc, results["hypothetical_sheet"], pct_cols=("portfolio_return",))
 
@@ -140,7 +140,7 @@ def build_report(path: Path, results: dict) -> Path:
     _h(doc, "15. Sector Analysis")
     for line in results["sector_narrative"]:
         _p(doc, line)
-    _img(doc, results["figures"]["sector_contrib"])
+    _img(doc, results["figures"].get("sector_contrib"))
 
     # 16 Rebalancing Framework
     _h(doc, "16. Rebalancing Framework")
@@ -149,7 +149,7 @@ def build_report(path: Path, results: dict) -> Path:
 
     # 17 2033 Glide Path
     _h(doc, "17. 2033 Glide Path")
-    _img(doc, results["figures"]["glide"])
+    _img(doc, results["figures"].get("glide"))
     _table(doc, results["glide_impact_sheet"], pct_cols=("prob_depletion", "prob_payments_funded"))
     _p(doc, results["glide_text"], italic=True)
 
