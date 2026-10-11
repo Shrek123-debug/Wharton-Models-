@@ -131,6 +131,7 @@ const TABS = [
   { id: "risk", label: "Risk & Concentration", render: renderRisk },
   { id: "rebalance", label: "Rebalance & Glide", render: renderRebalance },
   { id: "flags", label: "Flags & Actions", render: renderFlags },
+  { id: "whatif", label: "What-If Compare", render: renderWhatIf },
   { id: "dq", label: "Data Quality", render: renderDQ },
   { id: "method", label: "Methodology", render: renderMethod },
   { id: "guide", label: "Tutorial", render: renderGuide },
@@ -330,6 +331,53 @@ function renderRebalance() {
       ${tableBlock("optimization", { title: "Max-Sharpe Suggestion (diagnostic, not mandatory)" })}</div>`;
 }
 
+function isMoneyMetric(m) {
+  const low = String(m).toLowerCase();
+  if (/(probability|weight|hhi|bets|drawdown|cvar|var)/.test(low)) return false;
+  return /value|facility|terminal/.test(low);
+}
+
+function renderWhatIf() {
+  const c = state.payload.comparison;
+  if (!c) {
+    return `<div class="card"><div class="sub-head">What-If Compare</div>
+      <p class="narrative">No variant was requested for this run. Open <b>Run options</b> and fill in
+      <b>Compare against a variant</b> — for example <code>glide_end_equity=0.35</code> or
+      <code>model=student_t</code> — and the same portfolio will be run twice, then diffed here.</p>
+      <p class="mini-note">This is the fastest way to learn what a metric actually means: change one
+      assumption and watch which numbers move, and by how much.</p></div>`;
+  }
+  const chips = Object.entries(c.variant_overrides || {})
+    .map(([k, v]) => `<span class="th-chip">${esc(k)} = ${esc(String(v))}</span>`).join("");
+  const rows = (c.table || []).map(r => {
+    const fmt = isMoneyMetric(r.metric) ? money : (v => Number(v).toFixed(3));
+    const move = r.moves === "better" ? '<span class="move-better">better</span>'
+      : r.moves === "worse" ? '<span class="move-worse">worse</span>' : '<span class="move-flat">unchanged</span>';
+    const pctChange = r["change_%"] === null || r["change_%"] === undefined
+      ? "" : `${(r["change_%"] * 100).toFixed(1)}%`;
+    return `<tr><td>${esc(r.metric)} ${infoBtn(r.metric)}</td>
+      <td class="num">${fmt(r.baseline)}</td><td class="num">${fmt(r.variant)}</td>
+      <td class="num">${fmt(r.change)}</td><td class="num">${pctChange}</td><td>${move}</td></tr>`;
+  }).join("");
+  const flags = (c.flags || []).map(f => `<div class="flag-card sev-${esc(f.severity)}">
+      <div class="flag-head"><span class="sev-badge sev-${esc(f.severity)}">${esc(f.severity)}</span>
+      <span class="flag-id">${esc(f.flag)}</span><span class="flag-cat">${esc(f.change)}</span></div>
+      <div class="flag-metric">${esc(f.metric)} ${infoBtn(f.glossary_key || f.metric)}</div>
+      <div class="flag-action"><b>Suggested action:</b> ${esc(f.action)}</div></div>`).join("");
+  return `
+    <div class="card"><div class="sub-head">Variant applied to the same portfolio</div>
+      <div class="chip-row">${chips}</div>
+      <p class="mini-note">Both runs use the same holdings, seed and data. Only the values above differ,
+      so every difference below is caused by that assumption.</p></div>
+    <div class="card"><div class="sub-head">Baseline versus variant</div>
+      <table><thead><tr><th>Metric</th><th>Baseline</th><th>Variant</th><th>Change</th>
+      <th>Change %</th><th>Moves</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="mini-note">"Moves" is semantic: CVaR, VaR, drawdown and HHI improve by getting smaller;
+      terminal value and funding probabilities improve by getting larger.</p></div>
+    <div class="card"><div class="sub-head">Rule flags that appear or disappear</div>
+      ${flags || '<p class="narrative">Both runs triggered the same rule flags — the assumption did not change any decision.</p>'}</div>`;
+}
+
 function renderFlags() {
   const p = state.payload;
   const th = p.thresholds;
@@ -464,6 +512,8 @@ async function startRun(withFile) {
   const fd = new FormData();
   if (withFile) fd.append("file", withFile);
   fd.append("options", JSON.stringify(collectOptions()));
+  const variantField = document.getElementById("opt-variant");
+  if (variantField && variantField.value.trim()) fd.append("variant", variantField.value.trim());
   try {
     const res = await fetch("/api/analyze", { method: "POST", body: fd });
     const body = await res.json();

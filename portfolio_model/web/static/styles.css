@@ -162,6 +162,14 @@ tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
 .empty-state .btn { width: auto; display: inline-block; }
 .hidden { display: none !important; }
 
+/* what-if comparison */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.move-better { color: #1a7f37; font-weight: 600; }
+.move-worse { color: #b2182b; font-weight: 600; }
+.move-flat { color: var(--muted); }
+.field-wide { grid-column: 1 / -1; }
+.field-hint { font-size: 11px; color: var(--muted); margin: 4px 0 0; }
+
 /* config problem surfaced in the environment panel */
 .env-config-problem { border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px; }
 .env-config-problem .env-detail { font-size: 12px; white-space: pre-wrap; }

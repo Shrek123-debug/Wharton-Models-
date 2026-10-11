@@ -62,12 +62,25 @@ def _running_job() -> dict | None:
     return None
 
 
-def _execute(job: dict, input_path: Path, overrides: dict) -> None:
+def _execute(job: dict, input_path: Path, overrides: dict, variant: dict | None = None) -> None:
     try:
         results = run(input_path=str(input_path), out_dir=str(OUT_DIR), overrides=overrides or None)
         job["payload"] = build_payload(results)
         job["xlsx"] = str(OUT_DIR / "spreadsheet" / "portfolio_analysis.xlsx")
         job["docx"] = str(OUT_DIR / "report" / "portfolio_analysis_report.docx")
+        if variant:
+            # Same portfolio, different assumption: the diff is what teaches the metrics.
+            from src.compare import compare_runs, flag_deltas
+
+            from .serialize import df_records
+
+            alt = run(input_path=str(input_path), out_dir=str(OUT_DIR / "variant"),
+                      overrides=variant, render_charts=False)
+            job["payload"]["comparison"] = {
+                "variant_overrides": variant,
+                "table": df_records(compare_runs(results, alt, "baseline", "variant")),
+                "flags": df_records(flag_deltas(results, alt)),
+            }
         job["status"] = "done"
     except PipelineError as exc:
         job["status"] = "error"
@@ -153,7 +166,8 @@ def get_config() -> dict:
 
 
 @app.post("/api/analyze")
-async def analyze(file: UploadFile | None = File(None), options: str = Form("{}")) -> dict:
+async def analyze(file: UploadFile | None = File(None), options: str = Form("{}"),
+                  variant: str = Form("")) -> dict:
     global LAST_INPUT
     with LOCK:
         if _running_job() is not None:
@@ -165,6 +179,31 @@ async def analyze(file: UploadFile | None = File(None), options: str = Form("{}"
             raise ValueError
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid options payload.") from None
+
+    variant_overrides: dict | None = None
+    if variant and variant.strip():
+        variant_overrides = {}
+        for pair in variant.split(","):
+            if not pair.strip():
+                continue
+            if "=" not in pair:
+                raise HTTPException(status_code=400,
+                                    detail=f"Variant {pair.strip()!r} must be KEY=VALUE.")
+            key, raw = pair.split("=", 1)
+            key = key.strip()
+            raw = raw.strip()
+            if raw.lower() in ("true", "false"):
+                value: object = raw.lower() == "true"
+            try:
+                value = int(raw)
+            except ValueError:
+                try:
+                    value = float(raw)
+                except ValueError:
+                    value = raw
+            variant_overrides[key] = value
+        if not variant_overrides:
+            variant_overrides = None
 
     input_path = LAST_INPUT
     if file is not None and file.filename:
@@ -195,7 +234,8 @@ async def analyze(file: UploadFile | None = File(None), options: str = Form("{}"
     with LOCK:
         JOBS[job_id] = job
         _prune_jobs()
-    threading.Thread(target=_execute, args=(job, input_path, overrides), daemon=True).start()
+    threading.Thread(target=_execute, args=(job, input_path, overrides, variant_overrides),
+                     daemon=True).start()
     return {"job_id": job_id}
 
 

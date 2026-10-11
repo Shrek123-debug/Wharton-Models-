@@ -63,6 +63,11 @@
             <option value="always">Offline only (bundled snapshots)</option>
             <option value="never">Live download required</option>
           </select></div>
+        <div class="field field-wide"><label>Compare against a variant (KEY=VALUE, comma separated)</label>
+          <input id="opt-variant" type="text" placeholder="glide_end_equity=0.35, model=student_t"
+                 autocomplete="off" spellcheck="false">
+          <p class="field-hint">Runs the same portfolio twice and shows what actually moved. Leave blank to skip.</p>
+        </div>
       </div>
     </details>
     <button id="btn-run" class="btn run">Run Analysis</button>

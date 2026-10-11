@@ -140,18 +140,26 @@ option instead of crashing mid-simulation.
 | Risk & Concentration | VaR/CVaR (historical, parametric, simulated), HHI, correlation heatmap, stop-loss backtests |
 | Rebalance & Glide | Band triggers with suggested trades, glide path + impact table, max-Sharpe diagnostic |
 | Flags & Actions | All rule flags, key risks, prioritized recommendations, decision matrix, monitoring checklist |
+| What-If Compare | Same portfolio run twice under a variant assumption: metric-by-metric diff plus the flags that appear or disappear |
 | Data Quality | Validation flags, data provenance, assumptions, limitations |
-| Methodology | Seed / sims / versions (reproducibility manifest), methodology notes |
+| Methodology | Seed / sims / versions (reproducibility manifest), data provenance, methodology notes |
 | **Tutorial** | `docs/TUTORIAL.md` rendered in the app |
-| **Definitions** | All 70 metric definitions with search |
+| **Definitions** | All 76 metric definitions with search |
 
 Interpretability features:
 
-- an **_i_ button on every KPI card and table column header** that has a definition — click
-  it for what the metric is, what it measures, how to read it for this portfolio, what to do
-  about it, and the trap that makes people misread it;
+- a **"What this means for your portfolio"** card at the top of Overview: the reserve-funding
+  verdict, the tail shortfall against the typical outcome, how many independent bets the
+  holdings really represent, the tail cost, and the action behind the highest-severity flags;
+- a **caption under every chart** — what it shows, how to read it, and the trap that makes
+  people read it wrong — generated from the same file as the Definitions tab;
+- an **_i_ button on every KPI card, table column header and rule flag** that has a definition
+  — click it for what the metric is, what it measures, how to read it for this portfolio, what
+  to do about it, and the trap that makes people misread it;
+- a **correlated-clusters table** showing holdings that are really one bet, with their combined
+  weight;
 - an **environment pre-flight panel** showing blocking problems and warnings, with fixes,
-  before you press Run;
+  before you press Run — including config problems named key by key;
 - a **Market data** option (auto / offline only / live required) in Run options.
 
 Charts render from a locally vendored `plotly.min.js` — no CDN, no external requests.
@@ -297,14 +305,17 @@ cd portfolio_model && python -m pytest tests -q
 `requirements.txt` deliberately excludes test tooling so a plain install stays minimal;
 install `requirements-dev.txt` before running the tests or `ruff`.
 
-117 tests cover returns math, ingestion/validation robustness, covariance and portfolio
+150 tests cover returns math, ingestion/validation robustness, covariance and portfolio
 stats, VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
-bootstrap, sensitivity interpretation, the rule-flag engine, the offline data layer, override
-validation, glossary completeness, chart-caption completeness, documentation freshness,
-tutorial/UI agreement, example-workbook ingestion, degenerate inputs (single holding, all
-cash, unknown ticker, negative weight, foreign ticker, crisis windows outside the price
-history), the web API contract (routes, rejections, exports, bounded job table), and an
-end-to-end offline pipeline run with determinism and no-silent-NaN checks.
+bootstrap, sensitivity interpretation, the rule-flag engine, config validation (missing keys,
+wrong types, out-of-range values, cross-key rules, the real CLI exit code), run comparison
+(deltas, direction semantics, flag matching), the offline data layer, override validation,
+glossary completeness, chart-caption completeness, workbook sheet documentation, report
+cross-references, documentation freshness, tutorial/UI agreement, example-workbook ingestion,
+degenerate inputs (single holding, all cash, unknown ticker, negative weight, foreign ticker,
+crisis windows outside the price history), the web API contract (routes, rejections, exports,
+variant comparison, bounded job table), and an end-to-end offline pipeline run with determinism
+and no-silent-NaN checks.
 
 CI (`.github/workflows/ci.yml`) runs `ruff check .` and the suite on Python 3.11 and 3.12
 with `PORTFOLIO_OFFLINE=1`, so an accidental dependency on the network fails the build

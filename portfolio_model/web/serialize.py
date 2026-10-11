@@ -40,8 +40,13 @@ def _num(v):
     return str(v)
 
 
-def df_records(df: pd.DataFrame | None, rename: dict | None = None) -> list[dict]:
-    if df is None or len(df) == 0:
+def df_records(df: pd.DataFrame | list[dict] | None, rename: dict | None = None) -> list[dict]:
+    """JSON-safe list of row dicts from a DataFrame or a plain list of dicts."""
+    if df is None:
+        return []
+    if isinstance(df, list):
+        df = pd.DataFrame(df)
+    if len(df) == 0:
         return []
     d = df.copy()
     if d.index.name or not isinstance(d.index, pd.RangeIndex):

@@ -125,3 +125,52 @@ def test_ui_surfaces_a_config_problem_instead_of_silently_using_defaults():
     assert 'if (!res.ok)' in js
     css = (PKG_ROOT / "web" / "static" / "styles.css").read_text(encoding="utf-8")
     assert ".env-config-problem" in css
+
+
+def test_df_records_accepts_a_plain_list_of_dicts():
+    """flag_deltas returns rows, not a DataFrame; df_records must handle both."""
+    from web.serialize import df_records
+
+    rows = [{"flag": "DD-04", "severity": "WARNING", "metric": "P(>20% dd)", "value": 0.27}]
+    out = df_records(rows)
+    assert out == rows
+    assert df_records([]) == [] and df_records(None) == []
+
+
+def test_variant_comparison_is_attached_to_the_results_payload():
+    resp = client.post("/api/analyze", data={"options": '{"sims":400,"sensitivity_sims":200,"offline":"always"}',
+                                             "variant": "glide_end_equity=0.35"})
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+    deadline = time.time() + 240
+    payload = None
+    while time.time() < deadline:
+        status = client.get(f"/api/job/{job_id}").json()
+        if status["status"] == "done":
+            payload = client.get(f"/api/results/{job_id}").json()
+            break
+        if status["status"] == "error":
+            pytest.fail(f"variant run failed: {status.get('error')}")
+        time.sleep(1)
+    assert payload is not None, "variant run did not finish"
+
+    comp = payload.get("comparison")
+    assert comp, "no comparison attached when a variant was requested"
+    assert comp["variant_overrides"] == {"glide_end_equity": 0.35}
+    assert len(comp["table"]) > 8
+    row = next(r for r in comp["table"] if r["metric"].startswith("Median terminal value"))
+    assert {"baseline", "variant", "change", "moves"} <= set(row)
+    assert row["moves"] in ("better", "worse", "unchanged")
+
+
+def test_malformed_variant_is_rejected_before_any_simulation():
+    resp = client.post("/api/analyze", data={"options": "{}", "variant": "glide_end_equity"})
+    assert resp.status_code == 400
+    assert "KEY=VALUE" in resp.json()["detail"]
+
+
+def test_what_if_tab_exists_in_the_ui():
+    js = (PKG_ROOT / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'id: "whatif"' in js and "renderWhatIf" in js
+    html = (PKG_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="opt-variant"' in html

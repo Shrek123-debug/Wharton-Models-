@@ -167,7 +167,11 @@ something, it says what and how to fix it **before** you press Run.
   option, not a crash mid-simulation.
 - **Tabs** — Overview, Holdings & Sectors, History, Monte Carlo, Markov Regime, Historical
   Bootstrap, Model Comparison, Sensitivity, Stress Tests, Risk & Concentration, Rebalance &
-  Glide, Flags & Actions, Data Quality, Methodology, Tutorial, Definitions.
+  Glide, Flags & Actions, What-If Compare, Data Quality, Methodology, Tutorial, Definitions.
+- **What-If Compare** — fill in *Compare against a variant* in Run options (for example
+  `glide_end_equity=0.35`) and the same portfolio runs twice. The tab shows every
+  decision-relevant metric side by side with the change, the percentage change, whether it
+  moved better or worse, and the rule flags that appear or disappear.
 - **"What this means for your portfolio"** — the first card on Overview. It states the
   reserve-funding verdict, the tail shortfall against the typical outcome, how many
   independent bets the holdings really represent, the tail cost, and the action behind the
