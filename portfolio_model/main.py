@@ -51,6 +51,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-charts", action="store_true", help="Skip figure rendering")
     ap.add_argument("--quiet", action="store_true", help="Only print warnings and the summary")
     ap.add_argument("--check", action="store_true", help="Run the environment/data self-test and exit")
+    ap.add_argument("--variant", action="append", metavar="KEY=VALUE",
+                    help="Run a second scenario with these overrides and print a side-by-side "
+                         "comparison (repeatable, e.g. --variant glide_end_equity=0.35 "
+                         "--variant model=student_t)")
     return ap
 
 
@@ -108,6 +112,60 @@ def main(argv: list[str] | None = None) -> int:
           f"success {b['prob_terminal_gt_start']:.1%} | reserve funded {b['prob_all_payments_funded']:.1%}")
     print(f"Markov       : median 2033 ${mk['median_terminal']:,.0f} | "
           f"P(bear ever 2027-32) {mk['bear_ever_prob']:.1%}")
+
+    if args.variant:
+        return _run_comparison(args, overrides, results, out)
+    return 0
+
+
+def _parse_scalar(raw: str):
+    """KEY=VALUE on the command line arrives as text; convert it the way the config would."""
+    low = raw.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        return raw
+
+
+def _run_comparison(args, overrides: dict, results: dict, out: Path) -> int:
+    from src.compare import compare_runs, flag_deltas, format_comparison
+    from src.pipeline import _ALLOWED_OVERRIDES
+
+    variant_overrides = dict(overrides)
+    for pair in args.variant:
+        if "=" not in pair:
+            print(f"\nBAD --variant: {pair!r} - expected KEY=VALUE", file=sys.stderr)
+            return 2
+        key, raw = pair.split("=", 1)
+        key = key.strip()
+        if key not in _ALLOWED_OVERRIDES:
+            print(f"\nBAD --variant: {key!r} cannot be overridden from the CLI.\n"
+                  f"Allowed: {', '.join(sorted(_ALLOWED_OVERRIDES))}", file=sys.stderr)
+            return 2
+        variant_overrides[key] = _parse_scalar(raw.strip())
+
+    try:
+        variant = run(input_path=args.input, config_path=args.config, out_dir=str(out / "variant"),
+                      overrides=variant_overrides, render_charts=False)
+    except (PipelineError, ConfigError, SystemExit) as exc:
+        print(f"\nVARIANT RUN FAILED: {exc}", file=sys.stderr)
+        return 2
+
+    diff = compare_runs(results, variant, "baseline", "variant")
+    print("\n=== Baseline versus variant ===")
+    print(f"Variant overrides: {', '.join(f'{k}={v}' for k, v in sorted(variant_overrides.items()))}")
+    print(format_comparison(diff, flag_deltas(results, variant), "baseline", "variant"))
+
+    csv_path = out / "compare" / "run_comparison.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    diff.to_csv(csv_path, index=False)
+    print(f"\nComparison written to {csv_path}")
     return 0
 
 

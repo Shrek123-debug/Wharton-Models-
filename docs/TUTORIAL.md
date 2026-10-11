@@ -108,7 +108,15 @@ python main.py --sims 25000 --model student_t    # heavier tails, more simulatio
 python main.py --glide-method none               # compare against no de-risking
 python main.py --no-charts --quiet               # fast smoke run
 python main.py --out /tmp/run1                   # keep runs separate
+python main.py --variant glide_end_equity=0.35   # run again with that change and diff them
 ```
+
+`--variant` is the assumption experiment, done for you: the portfolio runs twice, and the CLI
+prints baseline versus variant for the decision-relevant metrics — median terminal value, tail
+percentile, reserve-funding probability, CVaR, drawdown probabilities, effective independent
+bets and the rule-flag counts — each with the absolute change, the percentage change, and
+whether it moved better or worse. Flags that appear or disappear between the two runs are
+listed with the action attached. The table is also written to `outputs/compare/run_comparison.csv`.
 
 Exit codes: `0` success, `2` an input or run-option problem you can fix, `3` an unexpected
 internal error (the traceback is printed).

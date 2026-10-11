@@ -107,7 +107,14 @@ python main.py --glide-method none         # none | linear | accelerating | step
 python main.py --start-date 2010-01-01 --end-date 2025-12-31
 python main.py --offline | --refresh | --no-charts | --quiet
 python main.py --check                     # self-test only
+python main.py --variant glide_end_equity=0.35 --variant model=student_t
 ```
+
+`--variant` runs the same portfolio a second time with those overrides and prints a
+side-by-side comparison — baseline versus variant, absolute change, percentage change, whether
+each metric moved better or worse, and the rule flags that appear or disappear. The diff is
+also written to `outputs/compare/run_comparison.csv`. Only whitelisted run options can be
+varied, and a bad key is rejected before anything runs.
 
 Exit codes: `0` success · `2` an input or run-option problem you can fix · `3` unexpected
 internal error (traceback printed).
