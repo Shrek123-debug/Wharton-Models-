@@ -104,3 +104,24 @@ def test_job_table_stays_bounded():
     kept = {j for j in webapp.JOBS}
     assert "job0" not in kept and f"job{webapp.MAX_JOBS + 4}" in kept
     webapp.JOBS.clear()
+
+
+def test_a_broken_config_returns_400_naming_the_key_not_a_500(monkeypatch):
+    from src.config import ConfigError
+
+    def boom(*a, **k):
+        raise ConfigError("Configuration problem in model_config.yaml:\n"
+                          "  - risk.max_sector_weight is missing (number).")
+
+    monkeypatch.setattr(webapp, "load_config", boom)
+    resp = client.get("/api/config")
+    assert resp.status_code == 400, resp.text
+    assert "risk.max_sector_weight is missing" in resp.json()["detail"]
+
+
+def test_ui_surfaces_a_config_problem_instead_of_silently_using_defaults():
+    js = (PKG_ROOT / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "showConfigProblem" in js
+    assert 'if (!res.ok)' in js
+    css = (PKG_ROOT / "web" / "static" / "styles.css").read_text(encoding="utf-8")
+    assert ".env-config-problem" in css

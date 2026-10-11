@@ -503,6 +503,11 @@ async function init() {
   await Promise.all([loadGlossary(), loadGuide(), loadSelfCheck()]);
   try {
     const res = await fetch("/api/config");
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))).detail || "the configuration could not be read";
+      showConfigProblem(String(detail));
+      throw new Error(detail);
+    }
     const cfg = await res.json();
     document.getElementById("opt-sims").value = String(cfg.sims);
     document.getElementById("opt-seed").value = cfg.seed;
@@ -519,7 +524,7 @@ async function init() {
     document.getElementById("opt-bs").value = cfg.bootstrap_method;
     document.getElementById("opt-block").value = String(cfg.block_size_days);
     document.getElementById("opt-sens").value = String(cfg.sensitivity_sims);
-  } catch (e) { /* defaults stay */ }
+  } catch (e) { /* defaults stay; the problem is already surfaced in the panel */ }
 
   document.getElementById("btn-run").addEventListener("click", () => {
     const f = document.getElementById("file").files[0];
@@ -736,6 +741,18 @@ function renderGuide() {
 }
 
 /* ---------------------------------------------------------------- environment */
+function showConfigProblem(detail) {
+  const box = document.getElementById("env-panel");
+  if (!box) return;
+  box.className = "env-panel env-bad";
+  const block = document.createElement("div");
+  block.className = "env-config-problem";
+  block.innerHTML = `<div class="env-head">Configuration problem</div>
+    <p class="env-detail">${esc(detail)}</p>
+    <p class="env-fix">→ Fix the named key(s) in portfolio_model/config/model_config.yaml, or restore the shipped config.</p>`;
+  box.prepend(block);
+}
+
 async function loadSelfCheck() {
   const box = document.getElementById("env-panel");
   if (!box) return;

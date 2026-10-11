@@ -162,6 +162,10 @@ tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
 .empty-state .btn { width: auto; display: inline-block; }
 .hidden { display: none !important; }
 
+/* config problem surfaced in the environment panel */
+.env-config-problem { border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px; }
+.env-config-problem .env-detail { font-size: 12px; white-space: pre-wrap; }
+
 /* chart captions */
 .chart-note { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
 .chart-note p { font-size: 12px; margin: 4px 0; }

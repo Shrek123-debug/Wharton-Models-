@@ -13,8 +13,8 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -35,6 +35,12 @@ MAX_JOBS = 8
 
 app = FastAPI(title="Portfolio Analysis — Local Web UI")
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+
+
+@app.exception_handler(ConfigError)
+async def _config_error(_: Request, exc: ConfigError) -> JSONResponse:
+    """A broken config is a client-side fix, not a server crash: say which key."""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 JOBS: dict[str, dict] = {}
 LOCK = threading.Lock()
