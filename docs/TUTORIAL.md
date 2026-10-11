@@ -221,6 +221,9 @@ the point where you need a different assumption, not a different portfolio.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `CONFIG PROBLEM: … is missing (expected …)` | a key was deleted or mistyped in `model_config.yaml` | the message names each key and what it expected; restore that key from the shipped config |
+| `must be one of gaussian, lognormal, student_t, historical_residual` | typo in `simulation.model` | use one of the listed values |
+| `glide_end_year (…) is before simulation.start_year` | timeline keys disagree | make the glide end year at or after the start year |
 | `Input validation failed: ...` | no usable weights column | add `Portfolio Weight`, or `Market Value`, or `Shares` + `Price` |
 | `No holdings table detected` | header not found in the first 60 rows | put the header row higher, or set `input.sheet` in the config |
 | Rows skipped with "invalid/unsupported ticker" | company names instead of tickers | use exchange tickers |

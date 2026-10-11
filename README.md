@@ -199,6 +199,13 @@ windows, hypothetical shocks, success definitions, stop-loss levels, sector targ
 offline-first data settings. Run options override a whitelisted subset; the values used are
 recorded in the run manifest.
 
+The config is validated before anything runs. Every key has an expected type, allowed values
+and numeric range, and a few cross-key rules are checked too (glide end not before start year,
+Markov threshold count matching the state count, cashflow and crisis entries complete). A bad
+config fails immediately and names each offending key, what it expected and what it got — the
+CLI exits 2 with `CONFIG PROBLEM`, the web job reports `Config problem: …`, and `--check`
+shows it before you press Run.
+
 Simulation timeline: 2027 invest $300k · 2028 invest $150k · 2027–2032 glide phase · 2033
 split into reserve (PV of ten $50k payments at 2.9%) plus facility surplus · 2033–2042
 reserve phase (success = all ten payments funded).
