@@ -361,7 +361,13 @@ function renderMethod() {
         <span class="th-chip">Seed ${m.seed}</span><span class="th-chip">Sims ${Number(m.n_sims).toLocaleString()}</span>
         <span class="th-chip">Model v${m.version}</span><span class="th-chip">Generated ${esc(m.generated_utc)}</span>
         <span class="th-chip">Python ${esc(m.python)}</span><span class="th-chip">Weights: ${esc(m.weights_source)}</span>
-      </div></div>
+        <span class="th-chip">Prices from: ${esc(m.data_sources || "n/a")}</span>
+        <span class="th-chip">Data as of: ${esc(m.data_as_of || "n/a")}</span>
+        <span class="th-chip">Network mode: ${esc(m.offline_mode || "auto")}</span>
+      </div>
+      <p class="mini-note">Two runs disagree most often because of data vintage, not mathematics:
+      "Prices from" says whether each series came from the local cache, a live download, or the
+      committed offline snapshots.</p></div>
     <div class="card"><div class="sub-head">Methodology</div>${listBlock("methodology")}</div>
     <div class="card"><div class="sub-head">Assumptions</div>${listBlock("assumptions")}</div>`;
 }
