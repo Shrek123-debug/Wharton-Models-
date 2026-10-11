@@ -162,6 +162,14 @@ tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
 .empty-state .btn { width: auto; display: inline-block; }
 .hidden { display: none !important; }
 
+/* chart captions */
+.chart-note { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.chart-note p { font-size: 12px; margin: 4px 0; }
+.cn-shows { color: var(--text); }
+.cn-read, .cn-watch { color: var(--muted); }
+.cn-watch b { color: var(--warn, #b26a00); }
+.chart-note .chip-row { margin-top: 6px; }
+
 /* interpretation card */
 .interpret-card { border-left: 3px solid var(--accent); }
 .interp-line { font-size: 12.5px; margin: 6px 0; }

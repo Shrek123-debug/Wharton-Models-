@@ -796,3 +796,156 @@ def lookup(label: str | None) -> str | None:
         if k.lower() == norm:
             return k
     return None
+
+
+# ---------------------------------------------------------------------------
+# Chart guide: one entry per figure id in the web dashboard.
+#
+# Same single-source-of-truth pattern as GLOSSARY: the web UI captions, the docs page
+# section "Reading the charts", and the tests are all generated from this dict. `keys`
+# must reference real GLOSSARY entries so a caption can never advertise a metric that is
+# not defined anywhere.
+# ---------------------------------------------------------------------------
+
+CHART_GUIDE: dict[str, dict[str, object]] = {
+    "allocation": {
+        "title": "Current allocation by holding",
+        "shows": "Each holding's share of invested capital, from the weights the input actually supplied.",
+        "read": "A slice is a position, not a bet. Two slices in the same correlated cluster are one bet wearing two names.",
+        "watch": "If the weights came from market value rather than an explicit target column, this is a snapshot, not a policy.",
+        "keys": ["weights_source", "hhi", "effective_n"],
+    },
+    "sector_bar": {
+        "title": "Allocation by sector versus configured targets",
+        "shows": "Sector totals against the target weights in the config, with the gap for each sector.",
+        "read": "The gap is the rebalancing distance. A large gap in a defensive sector usually means growth drifted up, not that anything broke.",
+        "watch": "Sector labels are assigned by a lookup table; an unmapped ticker lands in a catch-all sector and can hide real concentration.",
+        "keys": ["correlation_cluster", "hhi", "suggested_allocation"],
+    },
+    "cumulative": {
+        "title": "Historical cumulative growth",
+        "shows": "Growth of one unit of capital in the portfolio and its benchmarks over the available history.",
+        "read": "This is what already happened, on the current mix. It is the calibration evidence for the simulations, not a forecast.",
+        "watch": "The window is as long as the shortest holding's history, so a young ticker shortens the whole comparison.",
+        "keys": ["cagr_historical", "max_drawdown", "survivorship_bias"],
+    },
+    "drawdown": {
+        "title": "Historical drawdown",
+        "shows": "Distance below the running peak, month by month.",
+        "read": "Depth, duration and the time to recover are three different risks. A shallow drawdown that never fully recovers is worse than a deep one that does.",
+        "watch": "Drawdown is measured on the portfolio you hold today; a rebalance changes the answer completely.",
+        "keys": ["drawdown_peak_trough_recovery", "recovery_days", "max_drawdown"],
+    },
+    "corr_heatmap": {
+        "title": "Asset correlation matrix (monthly)",
+        "shows": "Pairwise monthly correlation between holdings.",
+        "read": "Look for blocks of high values. A block is one exposure expressed several ways.",
+        "watch": "Correlations are estimated on the shared history. Two tickers with little overlap produce a weak estimate that looks reassuringly low.",
+        "keys": ["correlation", "correlation_cluster", "effective_n", "confidence"],
+    },
+    "sec_corr_heatmap": {
+        "title": "Sector correlation matrix (monthly)",
+        "shows": "Correlation between sector aggregates rather than individual holdings.",
+        "read": "Use this to judge whether the sector labels are doing any work. If two 'different' sectors move as one, the diversification is cosmetic.",
+        "watch": "Aggregating hides the position-level concentration that the holdings view shows.",
+        "keys": ["correlation", "correlation_cluster"],
+    },
+    "terminal_dist": {
+        "title": "Terminal value distributions (all engines overlaid)",
+        "shows": "The distribution of the 2033 outcome under each simulation engine.",
+        "read": "Compare the left tails first. Where the engines disagree about the bad tail is where the planning risk lives.",
+        "watch": "Different engines answer different questions; a wider distribution is not automatically a worse portfolio.",
+        "keys": ["terminal_2033", "terminal_percentiles", "median_terminal", "bootstrap"],
+    },
+    "mc_fan": {
+        "title": "Monte Carlo fan chart",
+        "shows": "Percentile bands of simulated portfolio value from now to the glide end.",
+        "read": "The bands are percentiles of many simulated paths, not a confidence interval around a forecast of the mean.",
+        "watch": "The bands widen with time by construction. Width at the far end says more about horizon than about the holdings.",
+        "keys": ["monte_carlo", "terminal_percentiles", "var_horizon_warning"],
+    },
+    "bs_fan": {
+        "title": "Historical bootstrap fan chart",
+        "shows": "The same fan built by resampling blocks of real historical returns.",
+        "read": "Every path here is a sequence that actually happened somewhere in the data. It is the reality check on the parametric model.",
+        "watch": "It cannot invent a crisis that is not in the sample, so it understates novel shocks.",
+        "keys": ["bootstrap", "block_bootstrap", "terminal_percentiles"],
+    },
+    "comparison": {
+        "title": "Engine comparison",
+        "shows": "Median outcome, tail percentiles, VaR/CVaR and reserve-funding probability for all three engines.",
+        "read": "Plan against the most conservative engine that is credible for the decision, not against the average of the three.",
+        "watch": "A large spread between engines is a finding in itself: it means the answer depends on assumptions, not on the holdings.",
+        "keys": ["median_terminal", "prob_all_payments_funded", "var", "cvar"],
+    },
+    "sens_success": {
+        "title": "Sensitivity: probability of success",
+        "shows": "Probability of meeting the obligation across a grid of return and volatility assumptions.",
+        "read": "Find the contour where success drops below the level you need, then ask how far the current assumptions sit from it.",
+        "watch": "The grid is a map of assumptions, not probabilities. The cells are not equally likely.",
+        "keys": ["sensitivity_grid", "fragile_vol_threshold", "min_return_for_success"],
+    },
+    "sens_terminal": {
+        "title": "Sensitivity: median 2033 terminal value",
+        "shows": "Median terminal value across the same assumption grid.",
+        "read": "Read the slope, not the level: steep colour changes mark the assumption that actually moves the answer.",
+        "watch": "Median value can look safe while the probability of success collapses in the same region.",
+        "keys": ["sensitivity_grid", "fragile_vol_threshold"],
+    },
+    "crisis": {
+        "title": "Crisis replay",
+        "shows": "How the current mix would have behaved in each configured historical crisis window.",
+        "read": "This is the mix, not the history: it answers 'what would this portfolio have done', holding weights fixed.",
+        "watch": "Windows with no overlapping price history are reported as skipped rather than scored as zero.",
+        "keys": ["crisis_test", "max_drawdown_growth", "recovery_days"],
+    },
+    "glide": {
+        "title": "Glide path",
+        "shows": "The configured de-risking schedule from the start equity weight to the end weight.",
+        "read": "The glide path is a decision you made, shown as a schedule. The simulations follow it mechanically.",
+        "watch": "Changing the method changes the schedule and therefore every downstream probability; it is not a cosmetic setting.",
+        "keys": ["glide_path", "contributions"],
+    },
+    "concentration": {
+        "title": "Position concentration versus the limit",
+        "shows": "Each holding's weight against the configured maximum position weight.",
+        "read": "Bars past the limit line are the positions the rule engine flags. Their severity follows the size of the breach.",
+        "watch": "A portfolio can pass every position limit and still be concentrated, because correlated clusters add up.",
+        "keys": ["hhi", "effective_n", "top3_top5_top10", "rebalance_band"],
+    },
+    "scorecard": {
+        "title": "Portfolio scorecard",
+        "shows": "Each configured test, its threshold, the current value and the pass/fail result.",
+        "read": "Every bar is a rule with a stated threshold. Nothing here is a judgement call or a model opinion.",
+        "watch": "A pass means 'inside the threshold you configured', not 'safe'.",
+        "keys": ["scorecard", "rule_flag", "severity_levels"],
+    },
+    "markov_P": {
+        "title": "Markov transition matrix",
+        "shows": "Estimated probability of moving from each market state to each other state in one year.",
+        "read": "Each row sums to one: it is the chance of leaving a state, not the chance of staying popular.",
+        "watch": "Estimates inherit the sample. A state that rarely occurs in the data has a poorly estimated row.",
+        "keys": ["transition_matrix", "markov"],
+    },
+    "markov_dist": {
+        "title": "Markov state distribution by year",
+        "shows": "Modelled probability of the market being in each state in each year to the glide end.",
+        "read": "This is regime risk over time: how the chance of a bear market is expected to build or fade.",
+        "watch": "The model is stationary, so it cannot represent a one-off structural change.",
+        "keys": ["markov_states", "stationary_distribution", "bear_ever_prob"],
+    },
+    "contribution": {
+        "title": "Return contribution by holding",
+        "shows": "Each holding's contribution to portfolio return over the trailing window.",
+        "read": "Contribution combines weight and performance. A small position can be the reason the portfolio worked.",
+        "watch": "Contribution is backward-looking and weight-dependent; it is not a forecast of what will drive results.",
+        "keys": ["contributions", "turnover", "pl_note"],
+    },
+    "dd_dist": {
+        "title": "Maximum drawdown distribution",
+        "shows": "Distribution of the worst simulated peak-to-trough decline before the glide end.",
+        "read": "Read the right tail: it is how deep the worst realistic path gets, which is what determines whether the plan survives.",
+        "watch": "This is simulated drawdown on terminal paths, not the historical drawdown chart above.",
+        "keys": ["max_drawdown", "prob_capital_depletion", "var_horizon_warning"],
+    },
+}

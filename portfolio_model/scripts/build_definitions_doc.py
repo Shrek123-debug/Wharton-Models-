@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.metric_glossary import GLOSSARY  # noqa: E402
+from src.metric_glossary import CHART_GUIDE, GLOSSARY  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 OUT_PATH = REPO_ROOT / "docs" / "METRIC_DEFINITIONS.md"
@@ -168,6 +168,21 @@ def build_doc() -> str:
     for i, (name, text) in enumerate(MISREADINGS, 1):
         out.append(f"{i}. **{name}.** {text}")
     out.append("")
+
+    out.append("## Reading the charts")
+    out.append("")
+    out.append("One entry per figure in the web dashboard, generated from the same file as the "
+               "captions the dashboard itself renders.")
+    out.append("")
+    for key, g in CHART_GUIDE.items():
+        links = ", ".join(f"`{k}`" for k in g["keys"])
+        out.append(f"### {g['title']}")
+        out.append("")
+        out.append(f"- **What it shows:** {g['shows']}")
+        out.append(f"- **How to read it:** {g['read']}")
+        out.append(f"- **Watch out:** {g['watch']}")
+        out.append(f"- **Metrics behind it:** {links}")
+        out.append("")
 
     out.append("## Metric reference table")
     out.append("")

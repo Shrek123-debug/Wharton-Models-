@@ -770,6 +770,150 @@ A triage summary, deliberately not the conclusion.
 9. **Assuming the run used live prices.** Check the Data provenance rows. An offline run uses the committed snapshots in `data/offline/`.
 10. **Assuming the report includes taxes.** It does not. Transaction cost is modelled; tax is not.
 
+## Reading the charts
+
+One entry per figure in the web dashboard, generated from the same file as the captions the dashboard itself renders.
+
+### Current allocation by holding
+
+- **What it shows:** Each holding's share of invested capital, from the weights the input actually supplied.
+- **How to read it:** A slice is a position, not a bet. Two slices in the same correlated cluster are one bet wearing two names.
+- **Watch out:** If the weights came from market value rather than an explicit target column, this is a snapshot, not a policy.
+- **Metrics behind it:** `weights_source`, `hhi`, `effective_n`
+
+### Allocation by sector versus configured targets
+
+- **What it shows:** Sector totals against the target weights in the config, with the gap for each sector.
+- **How to read it:** The gap is the rebalancing distance. A large gap in a defensive sector usually means growth drifted up, not that anything broke.
+- **Watch out:** Sector labels are assigned by a lookup table; an unmapped ticker lands in a catch-all sector and can hide real concentration.
+- **Metrics behind it:** `correlation_cluster`, `hhi`, `suggested_allocation`
+
+### Historical cumulative growth
+
+- **What it shows:** Growth of one unit of capital in the portfolio and its benchmarks over the available history.
+- **How to read it:** This is what already happened, on the current mix. It is the calibration evidence for the simulations, not a forecast.
+- **Watch out:** The window is as long as the shortest holding's history, so a young ticker shortens the whole comparison.
+- **Metrics behind it:** `cagr_historical`, `max_drawdown`, `survivorship_bias`
+
+### Historical drawdown
+
+- **What it shows:** Distance below the running peak, month by month.
+- **How to read it:** Depth, duration and the time to recover are three different risks. A shallow drawdown that never fully recovers is worse than a deep one that does.
+- **Watch out:** Drawdown is measured on the portfolio you hold today; a rebalance changes the answer completely.
+- **Metrics behind it:** `drawdown_peak_trough_recovery`, `recovery_days`, `max_drawdown`
+
+### Asset correlation matrix (monthly)
+
+- **What it shows:** Pairwise monthly correlation between holdings.
+- **How to read it:** Look for blocks of high values. A block is one exposure expressed several ways.
+- **Watch out:** Correlations are estimated on the shared history. Two tickers with little overlap produce a weak estimate that looks reassuringly low.
+- **Metrics behind it:** `correlation`, `correlation_cluster`, `effective_n`, `confidence`
+
+### Sector correlation matrix (monthly)
+
+- **What it shows:** Correlation between sector aggregates rather than individual holdings.
+- **How to read it:** Use this to judge whether the sector labels are doing any work. If two 'different' sectors move as one, the diversification is cosmetic.
+- **Watch out:** Aggregating hides the position-level concentration that the holdings view shows.
+- **Metrics behind it:** `correlation`, `correlation_cluster`
+
+### Terminal value distributions (all engines overlaid)
+
+- **What it shows:** The distribution of the 2033 outcome under each simulation engine.
+- **How to read it:** Compare the left tails first. Where the engines disagree about the bad tail is where the planning risk lives.
+- **Watch out:** Different engines answer different questions; a wider distribution is not automatically a worse portfolio.
+- **Metrics behind it:** `terminal_2033`, `terminal_percentiles`, `median_terminal`, `bootstrap`
+
+### Monte Carlo fan chart
+
+- **What it shows:** Percentile bands of simulated portfolio value from now to the glide end.
+- **How to read it:** The bands are percentiles of many simulated paths, not a confidence interval around a forecast of the mean.
+- **Watch out:** The bands widen with time by construction. Width at the far end says more about horizon than about the holdings.
+- **Metrics behind it:** `monte_carlo`, `terminal_percentiles`, `var_horizon_warning`
+
+### Historical bootstrap fan chart
+
+- **What it shows:** The same fan built by resampling blocks of real historical returns.
+- **How to read it:** Every path here is a sequence that actually happened somewhere in the data. It is the reality check on the parametric model.
+- **Watch out:** It cannot invent a crisis that is not in the sample, so it understates novel shocks.
+- **Metrics behind it:** `bootstrap`, `block_bootstrap`, `terminal_percentiles`
+
+### Engine comparison
+
+- **What it shows:** Median outcome, tail percentiles, VaR/CVaR and reserve-funding probability for all three engines.
+- **How to read it:** Plan against the most conservative engine that is credible for the decision, not against the average of the three.
+- **Watch out:** A large spread between engines is a finding in itself: it means the answer depends on assumptions, not on the holdings.
+- **Metrics behind it:** `median_terminal`, `prob_all_payments_funded`, `var`, `cvar`
+
+### Sensitivity: probability of success
+
+- **What it shows:** Probability of meeting the obligation across a grid of return and volatility assumptions.
+- **How to read it:** Find the contour where success drops below the level you need, then ask how far the current assumptions sit from it.
+- **Watch out:** The grid is a map of assumptions, not probabilities. The cells are not equally likely.
+- **Metrics behind it:** `sensitivity_grid`, `fragile_vol_threshold`, `min_return_for_success`
+
+### Sensitivity: median 2033 terminal value
+
+- **What it shows:** Median terminal value across the same assumption grid.
+- **How to read it:** Read the slope, not the level: steep colour changes mark the assumption that actually moves the answer.
+- **Watch out:** Median value can look safe while the probability of success collapses in the same region.
+- **Metrics behind it:** `sensitivity_grid`, `fragile_vol_threshold`
+
+### Crisis replay
+
+- **What it shows:** How the current mix would have behaved in each configured historical crisis window.
+- **How to read it:** This is the mix, not the history: it answers 'what would this portfolio have done', holding weights fixed.
+- **Watch out:** Windows with no overlapping price history are reported as skipped rather than scored as zero.
+- **Metrics behind it:** `crisis_test`, `max_drawdown_growth`, `recovery_days`
+
+### Glide path
+
+- **What it shows:** The configured de-risking schedule from the start equity weight to the end weight.
+- **How to read it:** The glide path is a decision you made, shown as a schedule. The simulations follow it mechanically.
+- **Watch out:** Changing the method changes the schedule and therefore every downstream probability; it is not a cosmetic setting.
+- **Metrics behind it:** `glide_path`, `contributions`
+
+### Position concentration versus the limit
+
+- **What it shows:** Each holding's weight against the configured maximum position weight.
+- **How to read it:** Bars past the limit line are the positions the rule engine flags. Their severity follows the size of the breach.
+- **Watch out:** A portfolio can pass every position limit and still be concentrated, because correlated clusters add up.
+- **Metrics behind it:** `hhi`, `effective_n`, `top3_top5_top10`, `rebalance_band`
+
+### Portfolio scorecard
+
+- **What it shows:** Each configured test, its threshold, the current value and the pass/fail result.
+- **How to read it:** Every bar is a rule with a stated threshold. Nothing here is a judgement call or a model opinion.
+- **Watch out:** A pass means 'inside the threshold you configured', not 'safe'.
+- **Metrics behind it:** `scorecard`, `rule_flag`, `severity_levels`
+
+### Markov transition matrix
+
+- **What it shows:** Estimated probability of moving from each market state to each other state in one year.
+- **How to read it:** Each row sums to one: it is the chance of leaving a state, not the chance of staying popular.
+- **Watch out:** Estimates inherit the sample. A state that rarely occurs in the data has a poorly estimated row.
+- **Metrics behind it:** `transition_matrix`, `markov`
+
+### Markov state distribution by year
+
+- **What it shows:** Modelled probability of the market being in each state in each year to the glide end.
+- **How to read it:** This is regime risk over time: how the chance of a bear market is expected to build or fade.
+- **Watch out:** The model is stationary, so it cannot represent a one-off structural change.
+- **Metrics behind it:** `markov_states`, `stationary_distribution`, `bear_ever_prob`
+
+### Return contribution by holding
+
+- **What it shows:** Each holding's contribution to portfolio return over the trailing window.
+- **How to read it:** Contribution combines weight and performance. A small position can be the reason the portfolio worked.
+- **Watch out:** Contribution is backward-looking and weight-dependent; it is not a forecast of what will drive results.
+- **Metrics behind it:** `contributions`, `turnover`, `pl_note`
+
+### Maximum drawdown distribution
+
+- **What it shows:** Distribution of the worst simulated peak-to-trough decline before the glide end.
+- **How to read it:** Read the right tail: it is how deep the worst realistic path gets, which is what determines whether the plan survives.
+- **Watch out:** This is simulated drawdown on terminal paths, not the historical drawdown chart above.
+- **Metrics behind it:** `max_drawdown`, `prob_capital_depletion`, `var_horizon_warning`
+
 ## Metric reference table
 
 | Key | Label | Unit | One-line meaning |

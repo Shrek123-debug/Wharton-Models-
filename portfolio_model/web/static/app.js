@@ -85,7 +85,17 @@ function rerenderTable(name) {
 }
 
 /* ---------------------------------------------------------------- blocks */
-const chart = key => `<div class="chart" data-chart="${key}"></div>`;
+const chart = key => {
+  const n = ((state.payload && state.payload.chart_notes) || {})[key];
+  const figure = `<div class="chart" data-chart="${key}"></div>`;
+  if (!n) return figure;
+  return `${figure}<div class="chart-note">
+    <p class="cn-shows">${esc(n.shows)}</p>
+    <p class="cn-read"><b>How to read it:</b> ${esc(n.read)}</p>
+    <p class="cn-watch"><b>Watch out:</b> ${esc(n.watch)}</p>
+    <div class="chip-row">${(n.keys || []).map(k => infoBtn(k)).join("")}</div>
+  </div>`;
+};
 const tableBlock = (key, opts) => `<div class="table-block" data-table-block="${key}">${tableHTML(key, state.payload.tables[key], opts)}</div>`;
 const textBlock = key => `<p class="narrative">${esc(state.payload.texts[key] || "")}</p>`;
 const listBlock = (key, cls) => `<ul class="${cls || "plain-list"}">${(state.payload[key] || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;

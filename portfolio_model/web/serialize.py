@@ -10,6 +10,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from src.metric_glossary import CHART_GUIDE
+
 STATE_NAMES = ["severe_bear", "bear", "neutral", "bull", "strong_bull"]
 STATE_COLORS = {"severe_bear": "#b2182b", "bear": "#ef8a62", "neutral": "#bdbdbd",
                 "bull": "#67a9cf", "strong_bull": "#2166ac"}
@@ -367,6 +369,7 @@ def build_payload(results: dict) -> dict:
         "dashboard": [[l, _num(v), f] for l, v, f in results["dashboard"]],
         "rule_flags": results["rule_flags"],
         "charts": charts,
+        "chart_notes": CHART_GUIDE,
         "tables": tables,
         "texts": {k: results[k] for k in
                   ("overview_text", "historical_text", "risk_text", "correlation_text", "concentration_text",
