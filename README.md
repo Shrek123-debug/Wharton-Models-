@@ -207,11 +207,13 @@ reserve phase (success = all ten payments funded).
 
 ## 8. Outputs
 
-- **Excel** — 20 sheets: Executive Summary, Holdings, Sector Allocation, Correlation Matrix,
+- **Excel** — 21 sheets: **Read Me** (what each sheet is for, which question to bring where,
+  severity legend), Executive Summary, Holdings, Sector Allocation, Correlation Matrix,
   Historical Performance, Monte Carlo, Markov Model, Historical Bootstrap, Model Comparison,
   Sensitivity, Risk, Stress Tests, Glide Path, Rebalancing, Rule Flags, Investment Theses,
   Data Quality, Scorecard, Stop-Loss Backtests, **Definitions**.
-- **DOCX** — 24-section written report including rule-based flags and conclusions.
+- **DOCX** — written report: a "How to read this report" guide, 23 numbered sections, rule-based
+  flags, conclusions, a monitoring checklist, and Appendix A defining every metric.
 - **Figures** — 16 PNG charts under `outputs/figures/`.
 - **Manifest** — `outputs/report/run_manifest.yaml` (config, seed, versions, data provenance).
 
@@ -284,10 +286,11 @@ install `requirements-dev.txt` before running the tests or `ruff`.
 117 tests cover returns math, ingestion/validation robustness, covariance and portfolio
 stats, VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
 bootstrap, sensitivity interpretation, the rule-flag engine, the offline data layer, override
-validation, glossary completeness, documentation freshness, example-workbook ingestion,
-degenerate inputs (single holding, all cash, unknown ticker, negative weight, foreign ticker,
-crisis windows outside the price history), and an end-to-end offline pipeline run with
-determinism and no-silent-NaN checks.
+validation, glossary completeness, chart-caption completeness, documentation freshness,
+tutorial/UI agreement, example-workbook ingestion, degenerate inputs (single holding, all
+cash, unknown ticker, negative weight, foreign ticker, crisis windows outside the price
+history), the web API contract (routes, rejections, exports, bounded job table), and an
+end-to-end offline pipeline run with determinism and no-silent-NaN checks.
 
 CI (`.github/workflows/ci.yml`) runs `ruff check .` and the suite on Python 3.11 and 3.12
 with `PORTFOLIO_OFFLINE=1`, so an accidental dependency on the network fails the build

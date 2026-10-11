@@ -116,7 +116,7 @@ internal error (the traceback is printed).
 Outputs land in `portfolio_model/outputs/`:
 
 ```
-outputs/spreadsheet/portfolio_analysis.xlsx     20 sheets, including Definitions
+outputs/spreadsheet/portfolio_analysis.xlsx     21 sheets, opening on Read Me, including Definitions
 outputs/report/portfolio_analysis_report.docx   written report
 outputs/figures/*.png                           16 charts
 outputs/report/run_manifest.yaml                seed, sims, versions, data provenance

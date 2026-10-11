@@ -34,8 +34,8 @@ python run_web.py --port 8080
 5. Interactive Plotly charts render from a locally vendored `plotly.min.js` — no CDN.
 6. Click the **_i_** button on any KPI card or table header to open that metric's definition:
    formula, what it measures, how to read it for this portfolio, what to do, and the trap.
-7. Download the full **Excel workbook** (20 sheets incl. *Rule Flags* and *Definitions*) and
-   **written DOCX report**.
+7. Download the full **Excel workbook** (21 sheets, opening on *Read Me* and including *Rule
+   Flags* and *Definitions*) and **written DOCX report**.
 
 All analysis runs on your machine. Prices resolve from `data/cache/`, then the network if
 allowed, then the committed snapshots in `data/offline/` — so a fresh clone runs everything
@@ -112,11 +112,12 @@ histories flagged low-confidence.
 
 ## Outputs
 
-- `outputs/spreadsheet/portfolio_analysis.xlsx` — 20 sheets (dashboard, holdings, sectors,
-  correlations, history, MC, Markov, bootstrap, comparison, sensitivity, risk, stress,
-  glide path, rebalancing, rule flags, theses, data quality, scorecard, stop-loss,
-  **definitions**)
-- `outputs/report/portfolio_analysis_report.docx` — 24-section written report
+- `outputs/spreadsheet/portfolio_analysis.xlsx` — 21 sheets (**read me** first, then dashboard,
+  holdings, sectors, correlations, history, MC, Markov, bootstrap, comparison, sensitivity,
+  risk incl. correlated clusters, stress, glide path, rebalancing, rule flags, theses, data
+  quality, scorecard, stop-loss, **definitions**)
+- `outputs/report/portfolio_analysis_report.docx` — written report: reading guide, 23 numbered
+  sections, conclusions, monitoring checklist and Appendix A (metric definitions)
 - `outputs/figures/` — 16 charts
 - `outputs/report/run_manifest.yaml` — config, seed, versions, data provenance (reproducibility)
 

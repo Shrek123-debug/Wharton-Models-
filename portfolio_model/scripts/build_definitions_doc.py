@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.metric_glossary import CHART_GUIDE, GLOSSARY  # noqa: E402
+from src.metric_glossary import CHART_GUIDE, GLOSSARY, SEVERITY_LEGEND, SHEET_GUIDE, SHEET_QUESTIONS  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 OUT_PATH = REPO_ROOT / "docs" / "METRIC_DEFINITIONS.md"
@@ -167,6 +167,26 @@ def build_doc() -> str:
     out.append("")
     for i, (name, text) in enumerate(MISREADINGS, 1):
         out.append(f"{i}. **{name}.** {text}")
+    out.append("")
+
+    out.append("## Where to look in the workbook")
+    out.append("")
+    out.append("The generated workbook opens on a **Read Me** sheet rendered from the same source as this list.")
+    out.append("")
+    out.append("| Question | Where to look |")
+    out.append("|---|---|")
+    for q, sheets in SHEET_QUESTIONS:
+        out.append(f"| {q} | {sheets} |")
+    out.append("")
+    out.append("| Sheet | What it is for |")
+    out.append("|---|---|")
+    for s, d in SHEET_GUIDE:
+        out.append(f"| `{s}` | {d} |")
+    out.append("")
+    out.append("| Severity | What it means |")
+    out.append("|---|---|")
+    for s, m in SEVERITY_LEGEND:
+        out.append(f"| **{s}** | {m} |")
     out.append("")
 
     out.append("## Reading the charts")

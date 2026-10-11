@@ -247,6 +247,27 @@ def build_workbook(path: Path, results: dict) -> Path:
             c.alignment = Alignment(wrap_text=True, vertical="top")
     _autosize(ws, max_w=58)
 
+    # ---- Sheet 0: Read Me (rendered from src/metric_glossary.py, placed first)
+    from ..metric_glossary import SEVERITY_LEGEND, SHEET_GUIDE, SHEET_QUESTIONS
+
+    ws = wb.create_sheet("Read Me", 0)
+    ws.cell(row=1, column=1, value="How to read this workbook").font = Font(bold=True, size=16, color="1F4E79")
+    ws.cell(row=2, column=1, value="Every forward-looking number in these sheets is a model estimate, a simulation "
+            "result, a scenario or an assumption - never a guarantee. Read it by question, not sheet by sheet."
+            ).font = Font(italic=True, size=9)
+    end = _write_df(ws, pd.DataFrame([{"question": q, "where_to_look": s} for q, s in SHEET_QUESTIONS]),
+                    4, "Start with these questions")
+    end = _write_df(ws, pd.DataFrame([{"sheet": s, "what_it_is_for": d} for s, d in SHEET_GUIDE]),
+                    end, "What each sheet is for")
+    end = _write_df(ws, pd.DataFrame([{"severity": s, "what_it_means": m} for s, m in SEVERITY_LEGEND]),
+                    end, "Severity legend (used by Rule Flags and Data Quality)")
+    ws.cell(row=end, column=1, value="Every metric is defined on the Definitions sheet. The same text generates "
+            "docs/METRIC_DEFINITIONS.md and the web UI Definitions tab.").font = Font(italic=True, size=9)
+    for row in ws.iter_rows(min_row=4, max_col=2):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws, max_w=70)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     return path

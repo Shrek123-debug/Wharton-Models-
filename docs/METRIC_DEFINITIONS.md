@@ -770,6 +770,52 @@ A triage summary, deliberately not the conclusion.
 9. **Assuming the run used live prices.** Check the Data provenance rows. An offline run uses the committed snapshots in `data/offline/`.
 10. **Assuming the report includes taxes.** It does not. Transaction cost is modelled; tax is not.
 
+## Where to look in the workbook
+
+The generated workbook opens on a **Read Me** sheet rendered from the same source as this list.
+
+| Question | Where to look |
+|---|---|
+| Can the 2033 obligation actually be funded? | Model Comparison, Risk, Executive Summary |
+| How bad can it get? | Monte Carlo, Historical Bootstrap, Risk |
+| Is this actually diversified? | Correlation Matrix, Risk (cluster table), Holdings |
+| Which decisions dominate the outcome? | Rule Flags, Scorecard |
+| How much do my assumptions matter? | Sensitivity |
+| What would a real crisis do to this mix? | Stress Tests |
+| What the model could not verify | Data Quality |
+| What does any given number mean? | Definitions |
+
+| Sheet | What it is for |
+|---|---|
+| `Executive Summary` | The headline numbers and the verdict, in one screen. |
+| `Holdings` | Every position: weight, sector, expected return, volatility, beta, cluster, confidence and thesis. |
+| `Sector Allocation` | Sector totals versus the configured targets, with the gap for each sector. |
+| `Correlation Matrix` | Pairwise monthly correlation between holdings. Look for blocks. |
+| `Historical Performance` | What the current weights would have done over the price history, with benchmarks. |
+| `Monte Carlo` | Parametric simulation results: percentiles, probabilities, VaR/CVaR on the 2033 outcome. |
+| `Markov Model` | Regime model: transition matrix, state probabilities by year, bear-market exposure. |
+| `Historical Bootstrap` | Resampling of real historical sequences: the reality check on the parametric model. |
+| `Model Comparison` | All three engines side by side. Where they disagree is where the planning risk lives. |
+| `Sensitivity` | The assumption grid: which assumption actually moves the answer. |
+| `Risk` | Risk metrics, drawdown recovery events, and the correlated-cluster table. |
+| `Stress Tests` | Crisis replays on the current mix, plus hypothetical forward scenarios. |
+| `Glide Path` | The de-risking schedule and what each variant does to the funding probabilities. |
+| `Rebalancing` | Current weight, target, bands and the suggested trade for each holding. |
+| `Rule Flags` | Every triggered rule: metric, current value, threshold, action and severity. |
+| `Investment Theses` | The stated thesis per holding, and which holdings have none. |
+| `Data Quality` | What the model could not verify: missing data, skipped windows, low-confidence series. |
+| `Scorecard` | Each configured test against its threshold, with the pass/fail result. |
+| `Stop-Loss Backtests` | Historical stop backtests. Risk discipline evidence, not trading advice. |
+| `Definitions` | Every metric in this workbook: what it is, how to read it, what to do, and the trap. |
+
+| Severity | What it means |
+|---|---|
+| **CRITICAL** | The plan fails under the configured rules. Address before relying on any other number. |
+| **HIGH** | A rule is breached in a way that changes the answer. Act on it. |
+| **WARNING** | Outside the configured comfort zone. Review and decide. |
+| **MONITOR** | Inside the rules but worth watching over time. |
+| **INFO** | Context, not a problem. |
+
 ## Reading the charts
 
 One entry per figure in the web dashboard, generated from the same file as the captions the dashboard itself renders.

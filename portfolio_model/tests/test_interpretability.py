@@ -11,7 +11,7 @@ from pathlib import Path
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))
 
-from src.metric_glossary import GLOSSARY  # noqa: E402
+from src.metric_glossary import GLOSSARY, SHEET_GUIDE, SHEET_QUESTIONS  # noqa: E402
 
 FIELDS = ("label", "unit", "formula", "meaning", "read_as", "action", "caveat")
 SUBSTANTIVE = ("formula", "meaning", "read_as", "action", "caveat")
@@ -159,3 +159,68 @@ def test_report_cross_references_point_at_sections_that_actually_exist():
                 f"{question!r} cites 'Section {num} {named}' but that section is '{numbered[num]}'")
         if "Appendix A" in target:
             assert any("Appendix A" in h for h in headings), "Appendix A is referenced but not written"
+
+
+def test_workbook_opens_on_a_read_me_sheet_that_documents_every_sheet():
+    """A 21-sheet workbook is useless if the reader cannot find the right sheet."""
+    import tempfile
+
+    from openpyxl import load_workbook
+
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_minimal.xlsx"),
+        out_dir=str(out), overrides={"sims": 300, "sensitivity_sims": 200, "offline": "always"},
+        render_charts=False)
+    wb = load_workbook(out / "spreadsheet" / "portfolio_analysis.xlsx")
+
+    assert wb.sheetnames[0] == "Read Me", f"workbook should open on Read Me, got {wb.sheetnames[0]}"
+    documented = dict(SHEET_GUIDE)
+    undocumented = [s for s in wb.sheetnames if s != "Read Me" and s not in documented]
+    assert not undocumented, f"sheets with no entry in SHEET_GUIDE: {undocumented}"
+    stale = [s for s in documented if s not in wb.sheetnames]
+    assert not stale, f"SHEET_GUIDE documents sheets that no longer exist: {stale}"
+
+    text = " ".join(str(c.value) for row in wb["Read Me"].iter_rows(max_col=2) for c in row if c.value)
+    for question, _ in SHEET_QUESTIONS:
+        assert question in text, f"Read Me sheet is missing the question {question!r}"
+
+
+def test_severity_legend_covers_every_severity_the_rule_engine_can_emit():
+    """If the rule engine gains a severity, the legend has to explain it."""
+    import re
+
+    from src.metric_glossary import SEVERITY_LEGEND
+
+    legend = {s for s, _ in SEVERITY_LEGEND}
+    assert {"CRITICAL", "HIGH", "WARNING", "MONITOR", "INFO"} <= legend
+
+    source = (PKG_ROOT / "src" / "rules" / "rule_engine.py").read_text(encoding="utf-8")
+    emitted = set(re.findall(r"severity\s*=\s*[\"']([A-Z]+)[\"']", source))
+    emitted |= set(re.findall(r"[\"'](CRITICAL|HIGH|WARNING|MONITOR|INFO)[\"']", source))
+    unexplained = emitted - legend
+    assert not unexplained, f"rule engine emits {sorted(unexplained)} but no legend explains them"
+
+
+def test_report_contains_every_numbered_section_it_claims():
+    """The READMEs promise 23 numbered sections; a section silently dropped is a hole in the report."""
+    import re
+    import tempfile
+
+    from docx import Document
+
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_minimal.xlsx"),
+        out_dir=str(out), overrides={"sims": 300, "sensitivity_sims": 200, "offline": "always"},
+        render_charts=False)
+    doc = Document(out / "report" / "portfolio_analysis_report.docx")
+    top = [p.text for p in doc.paragraphs if p.style.name == "Heading 1"]
+    numbers = {int(m.group(1)) for m in (re.match(r"^(\d+)(?:\.\d+)?\.?\s", h) for h in top) if m}
+    missing = sorted(set(range(1, 24)) - numbers)
+    assert not missing, f"report is missing numbered sections {missing}"
+    for must in ("How to read this report", "Final Conclusions", "Monitoring Checklist",
+                 "Appendix A. Metric Definitions"):
+        assert must in top, f"report is missing the {must!r} section"
