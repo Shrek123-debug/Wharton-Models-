@@ -59,14 +59,14 @@ def build_report(path: Path, results: dict) -> Path:
 
     # How to read this report
     _h(doc, "How to read this report")
-    _p(doc, "Read it as answers to six questions rather than front to back:", italic=True)
+    _p(doc, "Read it as answers to these questions rather than front to back:", italic=True)
     _table(doc, pd.DataFrame([
-        {"question": "Can the 2033 obligation actually be funded?", "see": "Section 14 Model Comparison; Section 11 Risk"},
-        {"question": "How bad can it get?", "see": "Section 7 Monte Carlo; Section 9 Historical Bootstrap"},
-        {"question": "Is this actually diversified?", "see": "Section 2 Portfolio Overview; Section 11 Risk"},
+        {"question": "Can the 2033 obligation actually be funded?", "see": "Section 12 Model Comparison; Section 6 Risk Analysis"},
+        {"question": "How bad can it get?", "see": "Section 9 Monte Carlo Results; Section 11 Historical Bootstrap Results"},
+        {"question": "Is this actually diversified?", "see": "Section 7 Correlation Analysis; Section 8 Concentration Analysis"},
         {"question": "Which decisions dominate the outcome?", "see": "Section 19.5 Rule-Based Flags"},
-        {"question": "How much do my assumptions matter?", "see": "Section 15 Sensitivity"},
-        {"question": "What would a real crisis do to this mix?", "see": "Section 16 Stress Tests"},
+        {"question": "How much do my assumptions matter?", "see": "Section 13 Sensitivity Analysis"},
+        {"question": "What would a real crisis do to this mix?", "see": "Section 14 Crisis Stress Tests"},
         {"question": "What does any given number mean?", "see": "Appendix A Metric Definitions"},
     ]))
     _p(doc, "Every metric named in this report is defined in Appendix A, generated from the same source "

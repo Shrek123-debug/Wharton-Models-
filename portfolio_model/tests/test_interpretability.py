@@ -118,3 +118,44 @@ def test_sensitivity_fragility_threshold_is_read_at_the_base_return_assumption()
                          "median_terminal": 1000.0})
     out = interpret_grid(pd.DataFrame(rows))
     assert out["fragile_vol_threshold"] == 1.3, out
+
+
+def test_report_cross_references_point_at_sections_that_actually_exist():
+    """The 'How to read this report' table must not point at section numbers that are not there.
+
+    Renumbering a report is a silent failure: the prose keeps citing the old numbers and the
+    reader follows a reference to a section about something else entirely.
+    """
+    import re
+    import tempfile
+
+    from docx import Document
+
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_minimal.xlsx"),
+        out_dir=str(out), overrides={"sims": 300, "sensitivity_sims": 200, "offline": "always"},
+        render_charts=False)
+    doc = Document(out / "report" / "portfolio_analysis_report.docx")
+
+    headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
+    numbered = {}
+    for h in headings:
+        m = re.match(r"^(\d+(?:\.\d+)?)\.?\s+(.*)$", h)
+        if m:
+            numbered[m.group(1)] = m.group(2).lower()
+
+    guide = next(t for t in doc.tables
+                 if t.rows and t.rows[0].cells[0].text == "question")
+    refs = [(r.cells[0].text, r.cells[1].text) for r in guide.rows][1:]
+    assert len(refs) >= 6, "the reading guide should cover the whole report"
+
+    for question, target in refs:
+        for num in re.findall(r"Section (\d+(?:\.\d+)?)", target):
+            assert num in numbered, f"{question!r} points at Section {num}, which does not exist"
+            named = target.split(f"Section {num}", 1)[1].split(";")[0].strip().lower()
+            assert named.split(" ")[0] in numbered[num], (
+                f"{question!r} cites 'Section {num} {named}' but that section is '{numbered[num]}'")
+        if "Appendix A" in target:
+            assert any("Appendix A" in h for h in headings), "Appendix A is referenced but not written"
