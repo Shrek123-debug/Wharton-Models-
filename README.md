@@ -215,6 +215,22 @@ CLI runs write to `portfolio_model/outputs/`; web runs write to `portfolio_model
 
 ---
 
+## 8b. Repository layout
+
+| Path | What it is |
+|---|---|
+| `portfolio_model/` | The engine: CLI, web UI, simulation engines, reporting, tests, scripts |
+| `portfolio_model/data/offline/` | **Committed price snapshots** (92 tickers, adjusted close). This is what makes offline runs possible on a fresh clone |
+| `portfolio_model/data/cache/` | Run-time price cache (gitignored, regenerated) |
+| `portfolio_model/data/input/` | Example input workbooks, each with an `Instructions` sheet |
+| `models/stock_weighting_model.xlsx` | A real **input** portfolio workbook (the config default) |
+| `models/laura_gao_monte_carlo_model.xlsx` | A legacy **simulation output** workbook (Dashboard / Assumptions / Growth_MC / Reserve_MC). It is *not* an input file — pointing `--input` at it will report "No holdings table detected", which is the correct answer |
+| `apps-script/` | Google Apps Script helpers (`.js`) for the source spreadsheet environment. They are standalone and are not part of the Python pipeline or its tests |
+| `docs/` | `TUTORIAL.md` and the generated `METRIC_DEFINITIONS.md` |
+| `requirements*.txt`, `pytest.ini`, `ruff.toml`, `.github/workflows/ci.yml` | Install, test, lint and CI configuration |
+
+---
+
 ## 9. Rule-based flags (the suggestions, and where they come from)
 
 `portfolio_model/src/rules/rule_engine.py` compares calculated values against configured
