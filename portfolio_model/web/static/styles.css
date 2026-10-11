@@ -162,6 +162,66 @@ tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
 .empty-state .btn { width: auto; display: inline-block; }
 .hidden { display: none !important; }
 
+/* metric definitions */
+.info-btn {
+  display: inline-block; width: 15px; height: 15px; line-height: 15px; padding: 0;
+  margin-left: 6px; border-radius: 50%; border: 1px solid var(--accent);
+  background: transparent; color: var(--accent); font-size: 10px; font-style: italic;
+  font-family: Georgia, serif; cursor: pointer; vertical-align: middle;
+}
+.info-btn:hover { background: var(--accent); color: #0b1017; }
+.def-pop {
+  position: fixed; z-index: 50; width: 400px; max-width: 92vw; max-height: 60vh; overflow: auto;
+  background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 14px 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, .55);
+}
+.def-close { position: absolute; top: 6px; right: 8px; background: none; border: none;
+  color: var(--muted); font-size: 18px; cursor: pointer; }
+.def-title { font-weight: 700; font-size: 14px; color: var(--text); }
+.def-unit { font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; margin-bottom: 8px; }
+.def-list { margin: 0; display: grid; grid-template-columns: 128px 1fr; gap: 4px 10px; }
+.def-list dt { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+.def-list dd { margin: 0; font-size: 12.5px; color: var(--text); }
+.def-trap { color: var(--orange); }
+.def-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; margin-bottom: 12px; }
+.def-key { float: right; font-size: 10px; color: var(--muted); font-family: ui-monospace, monospace; }
+.def-search { width: 100%; margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+
+/* environment panel */
+.env-panel { margin-top: 12px; border-radius: 8px; padding: 10px 12px; font-size: 11.5px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); }
+.env-panel.env-good { border-color: var(--green); }
+.env-panel.env-warn { border-color: var(--yellow); }
+.env-panel.env-bad { border-color: var(--red); }
+.env-head { font-weight: 700; font-size: 12px; margin-bottom: 6px; color: var(--text); }
+.env-list { margin: 0; padding-left: 16px; }
+.env-list li { margin: 2px 0; }
+.env-list .env-fail { color: var(--red); }
+.env-list .env-warn { color: var(--yellow); }
+.env-fix { font-family: ui-monospace, monospace; font-size: 11px; color: var(--accent); }
+
+/* tutorial / markdown rendering */
+.guide-card { max-width: 900px; }
+.md-h { color: var(--text); margin: 18px 0 6px; }
+h2.md-h { font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+h3.md-h { font-size: 14.5px; color: var(--accent); }
+h4.md-h { font-size: 13px; }
+.guide-card p { font-size: 12.5px; margin: 6px 0; }
+.md-list { margin: 6px 0; padding-left: 20px; font-size: 12.5px; }
+.md-list li { margin: 3px 0; }
+.md-num { margin: 4px 0 4px 10px; }
+.md-table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; }
+.md-table th, .md-table td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+.md-table th { background: var(--panel-2); color: var(--text); }
+.guide-card code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+  padding: 1px 5px; font-family: ui-monospace, monospace; font-size: 11.5px; color: #c8e1ff; }
+.guide-card blockquote { margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--accent);
+  background: var(--panel-2); color: var(--muted); font-size: 12.5px; }
+.guide-card hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.guide-card a { color: var(--accent); }
+
 @media (max-width: 1000px) {
   .layout { grid-template-columns: 1fr; }
   .run-panel { border-right: none; border-bottom: 1px solid var(--border); }

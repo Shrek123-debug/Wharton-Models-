@@ -22,13 +22,16 @@ PACKAGE_ROOT = WEB_DIR.parent
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from src.config import load_config, resolve  # noqa: E402
-from src.pipeline import run  # noqa: E402
+from src.metric_glossary import ALIASES, GLOSSARY  # noqa: E402
+from src.pipeline import PipelineError, run  # noqa: E402
+from src.selfcheck import collect_checks  # noqa: E402
 
 from .serialize import build_payload  # noqa: E402
 
 UPLOAD_DIR = PACKAGE_ROOT / "data" / "input" / "uploads"
 OUT_DIR = PACKAGE_ROOT / "outputs" / "web"
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+MAX_JOBS = 8
 
 app = FastAPI(title="Portfolio Analysis — Local Web UI")
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -36,6 +39,14 @@ app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 JOBS: dict[str, dict] = {}
 LOCK = threading.Lock()
 LAST_INPUT: Path | None = None
+
+
+def _prune_jobs() -> None:
+    """Keep the in-memory job table bounded (a long-lived server must not grow forever)."""
+    if len(JOBS) <= MAX_JOBS:
+        return
+    for job_id in sorted(JOBS, key=lambda j: JOBS[j]["started"])[: len(JOBS) - MAX_JOBS]:
+        JOBS.pop(job_id, None)
 
 
 def _running_job() -> dict | None:
@@ -52,9 +63,15 @@ def _execute(job: dict, input_path: Path, overrides: dict) -> None:
         job["xlsx"] = str(OUT_DIR / "spreadsheet" / "portfolio_analysis.xlsx")
         job["docx"] = str(OUT_DIR / "report" / "portfolio_analysis_report.docx")
         job["status"] = "done"
+    except PipelineError as exc:
+        job["status"] = "error"
+        job["error"] = f"Run option problem: {exc}"
     except SystemExit as exc:
         job["status"] = "error"
-        job["error"] = str(exc)
+        job["error"] = f"Input problem: {exc}"
+    except ValueError as exc:
+        job["status"] = "error"
+        job["error"] = f"Input problem: {exc}"
     except Exception as exc:  # noqa: BLE001
         job["status"] = "error"
         job["error"] = f"{type(exc).__name__}: {exc}"
@@ -64,7 +81,36 @@ def _execute(job: dict, input_path: Path, overrides: dict) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True}
+    return {"ok": True, "local_only": True, "no_ai": True}
+
+
+@app.get("/api/glossary")
+def glossary() -> dict:
+    """Metric definitions (single source of truth) plus label -> definition mapping."""
+    return {"entries": GLOSSARY, "aliases": ALIASES}
+
+
+@app.get("/api/selfcheck")
+def selfcheck() -> dict:
+    """Environment/data readiness report shown in the UI before a run."""
+    checks = collect_checks()
+    return {
+        "ok": not any(c["status"] == "fail" for c in checks),
+        "checks": checks,
+        "blocking": [c for c in checks if c["status"] == "fail"],
+        "warnings": [c for c in checks if c["status"] == "warn"],
+    }
+
+
+@app.get("/api/guide")
+def guide() -> dict:
+    """The tutorial and the metric-definitions page, as markdown, for the Guide tab."""
+    docs = PACKAGE_ROOT.parent / "docs"
+    out: dict[str, str] = {}
+    for name in ("TUTORIAL.md", "METRIC_DEFINITIONS.md"):
+        p = docs / name
+        out[name[:-3].lower()] = p.read_text(encoding="utf-8") if p.exists() else ""
+    return out
 
 
 @app.get("/api/config")
@@ -90,6 +136,10 @@ def get_config() -> dict:
         "block_size_days": cfg["bootstrap"]["block_size_days"],
         "sensitivity_sims": cfg["sensitivity"]["n_simulations"],
         "default_input": cfg["input"]["spreadsheet"],
+        "offline": cfg["historical_data"].get("offline") or "auto",
+        "start_date": cfg["historical_data"]["start_date"],
+        "end_date": cfg["historical_data"].get("end_date"),
+        "data_as_of_note": "prices resolve from data/cache then data/offline snapshots",
     }
 
 
@@ -133,7 +183,9 @@ async def analyze(file: UploadFile | None = File(None), options: str = Form("{}"
     job = {"id": job_id, "status": "running", "started": time.time(), "elapsed": None,
            "input": str(input_path), "overrides": overrides, "error": None,
            "payload": None, "xlsx": None, "docx": None}
-    JOBS[job_id] = job
+    with LOCK:
+        JOBS[job_id] = job
+        _prune_jobs()
     threading.Thread(target=_execute, args=(job, input_path, overrides), daemon=True).start()
     return {"job_id": job_id}
 

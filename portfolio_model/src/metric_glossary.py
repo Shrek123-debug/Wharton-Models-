@@ -673,3 +673,126 @@ GLOSSARY: dict[str, dict] = {
 
 def entry_for(key: str) -> dict | None:
     return GLOSSARY.get(key)
+
+
+# Labels as they appear in the workbook, the DOCX report and the web UI -> glossary key.
+# The web UI uses this to attach a definition to a KPI card or a table column.
+ALIASES: dict[str, str] = {
+    "invested capital (2027-28)": "contributions",
+    "expected cagr (mc)": "cagr_money_weighted",
+    "historical cagr": "cagr_historical",
+    "volatility (hist, annual)": "annual_volatility",
+    "volatility": "volatility",
+    "sharpe (hist)": "sharpe",
+    "sharpe": "sharpe",
+    "sortino": "sortino",
+    "max drawdown (hist)": "max_drawdown",
+    "max drawdown": "max_drawdown",
+    "var 95% (monthly, historical)": "var",
+    "cvar 95% (monthly, historical)": "cvar",
+    "mc success": "prob_terminal_gt_start",
+    "bootstrap success": "prob_terminal_gt_start",
+    "2033 equity target": "glide_path",
+    "overall score": "scorecard",
+    "median terminal value (2033)": "median_terminal",
+    "median terminal": "median_terminal",
+    "probability reserve fully funded": "prob_all_payments_funded",
+    "probability terminal > contributions": "prob_terminal_gt_start",
+    "probability >20% drawdown": "max_drawdown_growth",
+    "median max drawdown (growth)": "max_drawdown_growth",
+    "var 95% (terminal)": "var",
+    "cvar 95% (terminal)": "cvar",
+    "var 99% (terminal)": "var",
+    "cvar 99% (terminal)": "cvar",
+    "p(bear ever 2027-32)": "bear_ever_prob",
+    "p(bear next year)": "bear_ever_prob",
+    "p(bull by 2032)": "bull_by_end_prob",
+    "stationary distribution": "stationary_distribution",
+    "expected duration (years) by state": "expected_duration",
+    "current state (latest full year)": "markov_states",
+    "effective number of independent bets": "effective_n",
+    "hhi": "hhi",
+    "top 3 weight": "top3_top5_top10",
+    "top 5 weight": "top3_top5_top10",
+    "top 10 weight": "top3_top5_top10",
+    "largest position": "top3_top5_top10",
+    "downside deviation": "downside_deviation",
+    "mean annual return": "mean_annual_return",
+    "weights source": "weights_source",
+    "risk-free rate": "risk_free_rate",
+    "inflation": "inflation_base",
+    "required reserve": "required_reserve",
+    "facility contribution": "facility_contribution",
+    "turnover": "turnover",
+    "rebalances": "turnover",
+    "confidence": "confidence",
+    "expected return": "expected_return",
+    "expected_return": "expected_return",
+    "volatility_annual": "volatility",
+    "historical_return_annual": "cagr_historical",
+    "historical_volatility_annual": "annual_volatility",
+    "return_12m": "cagr_historical",
+    "contribution_12m": "effective_n",
+    "prob_success": "prob_terminal_gt_start",
+    "prob_all_payments_funded": "prob_all_payments_funded",
+    "prob_depletion": "prob_capital_depletion",
+    "prob_facility_negative": "prob_facility_negative",
+    "median_max_dd": "max_drawdown_growth",
+    "median_max_drawdown": "max_drawdown_growth",
+    "prob_dd_gt_20": "max_drawdown_growth",
+    "sharpe_proxy": "sharpe_proxy",
+    "return_shift": "sensitivity_grid",
+    "vol_multiplier": "sensitivity_grid",
+    "var_95": "var",
+    "cvar_95": "cvar",
+    "historical_var": "var",
+    "historical_cvar": "cvar",
+    "parametric_var": "var",
+    "parametric_cvar": "cvar",
+    "missed_upside": "missed_upside",
+    "suggested_trade": "rebalance_band",
+    "suggested_weight": "suggested_allocation",
+    "current_weight": "weights_source",
+    "target_weight": "glide_path",
+    "lower_band": "rebalance_band",
+    "upper_band": "rebalance_band",
+    "days_to_recover": "recovery_days",
+    "drawdown": "max_drawdown",
+    "cumulative_return": "cagr_historical",
+    "portfolio_return": "mean_annual_return",
+    "rolling_vol_12m": "annual_volatility",
+    "rolling_sharpe_12m": "sharpe",
+    "mean_return": "markov_states",
+    "std_return": "markov_states",
+    "worst_day": "crisis_test",
+    "worst_week": "crisis_test",
+    "worst_month": "crisis_test",
+    "worst_holding_return": "crisis_test",
+    "shock_return": "hypothetical_shock",
+    "cagr": "cagr_money_weighted",
+    "vol": "annual_volatility",
+    "total_return": "stop_loss_backtest",
+    "exits": "stop_loss_backtest",
+}
+
+
+def lookup(label: str | None) -> str | None:
+    """Map a UI/workbook label to a glossary key (exact alias, then normalised match)."""
+    if not label:
+        return None
+    raw = str(label).strip()
+    key = ALIASES.get(raw) or ALIASES.get(raw.lower())
+    if key:
+        return key
+    norm = " ".join(raw.lower().replace("_", " ").split())
+    for alias, target in ALIASES.items():
+        if " ".join(alias.lower().split()) == norm:
+            return target
+    for k, entry in GLOSSARY.items():
+        lbl = entry["label"].lower()
+        if lbl == norm or (len(norm) > 6 and (norm in lbl or lbl in norm)):
+            return k
+    for k in GLOSSARY:
+        if k.lower() == norm:
+            return k
+    return None

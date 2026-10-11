@@ -57,10 +57,17 @@
           <select id="opt-block"><option>5</option><option selected>20</option><option>60</option></select></div>
         <div class="field"><label>Sensitivity sims/cell</label>
           <select id="opt-sens"><option>500</option><option>1000</option><option selected>2000</option></select></div>
+        <div class="field"><label>Market data</label>
+          <select id="opt-offline">
+            <option value="auto">Auto (cache, then live)</option>
+            <option value="always">Offline only (bundled snapshots)</option>
+            <option value="never">Live download required</option>
+          </select></div>
       </div>
     </details>
     <button id="btn-run" class="btn run">Run Analysis</button>
     <div id="status" class="status"></div>
+    <div id="env-panel" class="env-panel"></div>
     <div class="panel-note">
       Every number on this dashboard is computed locally from your spreadsheet and cached
       market data using explicit, inspectable formulas. Recommendations are rule-based

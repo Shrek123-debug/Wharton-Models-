@@ -2,6 +2,8 @@
 "use strict";
 
 const state = { jobId: null, payload: null, pollTimer: null };
+const glossary = { entries: {}, aliases: {} };
+const guideDocs = { tutorial: "", metricdefinitions: "" };
 
 /* ---------------------------------------------------------------- formatting */
 const PCT = new Set(["weight","target_weight","difference","volatility","expected_return","var_95","cvar_95",
@@ -57,7 +59,7 @@ function tableHTML(name, rows, opts = {}) {
   tableData[name] = { rows, sortCol: null, asc: true };
   if (!rows || !rows.length) return `<div class="table-empty">No rows.</div>`;
   const cols = Object.keys(rows[0]);
-  const head = cols.map(c => `<th data-table="${name}" data-col="${esc(c)}" class="sortable">${esc(c)}</th>`).join("");
+  const head = cols.map(c => `<th data-table="${name}" data-col="${esc(c)}" class="sortable">${esc(c)}${infoBtn(c)}</th>`).join("");
   const cap = opts.cap && rows.length > opts.cap ? ` <span class="cap-note">(showing ${opts.cap} of ${rows.length})</span>` : "";
   const shown = opts.cap ? rows.slice(0, opts.cap) : rows;
   const bodyShown = shown.map(r => `<tr>${cols.map(c => `<td>${fmtCell(c, r[c], r)}</td>`).join("")}</tr>`).join("");
@@ -121,6 +123,8 @@ const TABS = [
   { id: "flags", label: "Flags & Actions", render: renderFlags },
   { id: "dq", label: "Data Quality", render: renderDQ },
   { id: "method", label: "Methodology", render: renderMethod },
+  { id: "guide", label: "Tutorial", render: renderGuide },
+  { id: "defs", label: "Definitions", render: renderDefs },
 ];
 
 function renderOverview() {
@@ -306,7 +310,7 @@ function renderKPIs() {
   const strip = document.getElementById("kpi-strip");
   strip.classList.remove("hidden");
   strip.innerHTML = state.payload.dashboard.map(([l, v, f]) =>
-    `<div class="kpi"><div class="kpi-label">${esc(l)}</div><div class="kpi-value">${fmtDashboard(v, f)}</div></div>`).join("");
+    `<div class="kpi"><div class="kpi-label">${esc(l)}${infoBtn(l)}</div><div class="kpi-value">${fmtDashboard(v, f)}</div></div>`).join("");
 }
 
 function renderTabs() {
@@ -334,6 +338,7 @@ function selectTab(id) {
     if (t.sortCol === th.dataset.col) t.asc = !t.asc; else { t.sortCol = th.dataset.col; t.asc = true; }
     rerenderTable(th.dataset.table);
   }));
+  if (id === "defs") wireDefsSearch();
 }
 
 function renderAll() {
@@ -365,6 +370,7 @@ function collectOptions() {
     bootstrap_method: document.getElementById("opt-bs").value,
     block_size_days: parseInt(document.getElementById("opt-block").value, 10),
     sensitivity_sims: parseInt(document.getElementById("opt-sens").value, 10),
+    offline: document.getElementById("opt-offline").value,
   };
 }
 
@@ -417,6 +423,7 @@ function pollJob(jobId) {
 
 /* ---------------------------------------------------------------- init */
 async function init() {
+  await Promise.all([loadGlossary(), loadGuide(), loadSelfCheck()]);
   try {
     const res = await fetch("/api/config");
     const cfg = await res.json();
@@ -459,6 +466,216 @@ async function init() {
       renderAll();
     }
   } catch (e) { /* nothing yet */ }
+}
+
+/* ---------------------------------------------------------------- definitions */
+async function loadGlossary() {
+  try {
+    const res = await fetch("/api/glossary");
+    if (!res.ok) return;
+    const g = await res.json();
+    glossary.entries = g.entries || {};
+    glossary.aliases = g.aliases || {};
+  } catch (e) { /* definitions are optional */ }
+}
+
+function defKeyFor(label) {
+  if (label === null || label === undefined) return null;
+  const raw = String(label).trim();
+  if (glossary.aliases[raw]) return glossary.aliases[raw];
+  const lower = raw.toLowerCase();
+  if (glossary.aliases[lower]) return glossary.aliases[lower];
+  const norm = lower.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  for (const [alias, target] of Object.entries(glossary.aliases)) {
+    if (alias.toLowerCase().replace(/\s+/g, " ") === norm) return target;
+  }
+  for (const [k, e] of Object.entries(glossary.entries)) {
+    const lbl = (e.label || "").toLowerCase();
+    if (lbl === norm) return k;
+    if (norm.length > 6 && (norm.includes(lbl) || lbl.includes(norm))) return k;
+  }
+  if (glossary.entries[norm.replace(/ /g, "_")]) return norm.replace(/ /g, "_");
+  return null;
+}
+
+function infoBtn(label) {
+  const key = defKeyFor(label);
+  if (!key) return "";
+  return `<button class="info-btn" data-def="${esc(key)}" title="What this means">i</button>`;
+}
+
+function definitionHTML(key) {
+  const e = glossary.entries[key];
+  if (!e) return "";
+  return `<div class="def-title">${esc(e.label)}</div>
+    <div class="def-unit">${esc(key)} · ${esc(e.unit)}</div>
+    <dl class="def-list">
+      <dt>What it is</dt><dd>${esc(e.formula)}</dd>
+      <dt>What it measures</dt><dd>${esc(e.meaning)}</dd>
+      <dt>How to read it here</dt><dd>${esc(e.read_as)}</dd>
+      <dt>What to do about it</dt><dd>${esc(e.action)}</dd>
+      <dt>Trap</dt><dd class="def-trap">${esc(e.caveat)}</dd>
+    </dl>`;
+}
+
+function ensurePopover() {
+  let pop = document.getElementById("def-pop");
+  if (pop) return pop;
+  pop = document.createElement("div");
+  pop.id = "def-pop";
+  pop.className = "def-pop hidden";
+  pop.innerHTML = `<button class="def-close" type="button" aria-label="Close">×</button><div class="def-body"></div>`;
+  document.body.appendChild(pop);
+  pop.querySelector(".def-close").addEventListener("click", () => pop.classList.add("hidden"));
+  document.addEventListener("click", ev => {
+    if (!pop.classList.contains("hidden") && !pop.contains(ev.target) &&
+        !ev.target.closest(".info-btn")) pop.classList.add("hidden");
+  });
+  return pop;
+}
+
+function openDefinition(key, anchor) {
+  const pop = ensurePopover();
+  pop.querySelector(".def-body").innerHTML = definitionHTML(key);
+  pop.classList.remove("hidden");
+  const r = anchor.getBoundingClientRect();
+  pop.style.top = Math.min(window.innerHeight - 340, r.bottom + 8) + "px";
+  pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - 420)) + "px";
+}
+
+document.addEventListener("click", ev => {
+  const btn = ev.target.closest(".info-btn");
+  if (!btn) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  openDefinition(btn.dataset.def, btn);
+});
+
+function renderDefs() {
+  const entries = Object.entries(glossary.entries);
+  const cards = entries.map(([k, e]) => `
+    <div class="def-card" data-search="${esc((k + " " + e.label + " " + e.meaning).toLowerCase())}">
+      <div class="def-title">${esc(e.label)}<span class="def-key">${esc(k)}</span></div>
+      <dl class="def-list">
+        <dt>What it is</dt><dd>${esc(e.formula)}</dd>
+        <dt>What it measures</dt><dd>${esc(e.meaning)}</dd>
+        <dt>How to read it here</dt><dd>${esc(e.read_as)}</dd>
+        <dt>What to do about it</dt><dd>${esc(e.action)}</dd>
+        <dt>Trap</dt><dd class="def-trap">${esc(e.caveat)}</dd>
+      </dl>
+    </div>`).join("");
+  return `
+    <div class="card">
+      <div class="sub-head">Metric definitions (${entries.length})</div>
+      <p class="narrative">Every number on this dashboard, in the workbook and in the written report is defined
+      here from one shared source: <b>portfolio_model/src/metric_glossary.py</b>. The same file generates
+      <b>docs/METRIC_DEFINITIONS.md</b> and the workbook <b>Definitions</b> sheet, so the three views can never disagree.
+      The <i>i</i> buttons on KPI cards and table headers open the matching entry.</p>
+      <input type="search" id="def-search" class="def-search" placeholder="Search metrics — try 'reserve', 'VaR', 'drawdown', 'success'">
+    </div>
+    <div id="def-cards">${cards}</div>`;
+}
+
+function wireDefsSearch() {
+  const input = document.getElementById("def-search");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    const q = input.value.toLowerCase().trim();
+    document.querySelectorAll("#def-cards .def-card").forEach(card => {
+      card.style.display = !q || card.dataset.search.includes(q) ? "" : "none";
+    });
+  });
+}
+
+/* ---------------------------------------------------------------- tutorial */
+async function loadGuide() {
+  try {
+    const res = await fetch("/api/guide");
+    if (!res.ok) return;
+    const g = await res.json();
+    guideDocs.tutorial = g.tutorial || "";
+    guideDocs.metricdefinitions = g.metric_definitions || "";
+  } catch (e) { /* guide is optional */ }
+}
+
+function mdToHtml(md) {
+  const lines = String(md).split("\n");
+  const out = [];
+  let list = null, table = null, para = [];
+
+  const inline = s => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`<ul class="md-list">${list.map(x => `<li>${inline(x)}</li>`).join("")}</ul>`); list = null; } };
+  const flushTable = () => {
+    if (!table) return;
+    const head = table[0], body = table.slice(2);
+    out.push(`<table class="md-table"><thead><tr>${head.map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead>` +
+      `<tbody>${body.map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
+    table = null;
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const isTable = line.trim().startsWith("|") && line.trim().endsWith("|");
+    if (!isTable) flushTable();
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    const numbered = line.match(/^\s*(\d+)\.\s+(.*)$/);
+    if (h) { flushPara(); flushList(); const lvl = h[1].length; out.push(`<h${lvl + 1} class="md-h">${inline(h[2])}</h${lvl + 1}>`); continue; }
+    if (isTable) {
+      flushPara(); flushList();
+      const cells = line.trim().slice(1, -1).split("|").map(c => c.trim());
+      if (!table) table = [cells];
+      else if (!/^[\s|:-]+$/.test(line.replace(/\|/g, "|").slice(1, -1))) table.push(cells);
+      continue;
+    }
+    if (bullet) { flushPara(); if (!list) list = []; list.push(bullet[1]); continue; }
+    if (numbered) { flushPara(); flushList(); out.push(`<p class="md-num"><b>${numbered[1]}.</b> ${inline(numbered[2])}</p>`); continue; }
+    if (/^>\s?/.test(line)) { flushPara(); flushList(); out.push(`<blockquote>${inline(line.replace(/^>\s?/, ""))}</blockquote>`); continue; }
+    if (/^(-{3,}|_{3,})$/.test(line.trim())) { flushPara(); flushList(); out.push("<hr>"); continue; }
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    flushList();
+    para.push(line.trim());
+  }
+  flushPara(); flushList(); flushTable();
+  return out.join("\n");
+}
+
+function renderGuide() {
+  if (!guideDocs.tutorial) {
+    return `<div class="card"><div class="sub-head">Tutorial</div>
+      <p class="narrative">docs/TUTORIAL.md was not found on the server.</p></div>`;
+  }
+  return `
+    <div class="card guide-card">
+      <div class="sub-head">Tutorial — from spreadsheet to decision</div>
+      <p class="mini-note">Rendered from <b>docs/TUTORIAL.md</b> in the repository, the same file you can read offline.</p>
+      ${mdToHtml(guideDocs.tutorial)}
+    </div>`;
+}
+
+/* ---------------------------------------------------------------- environment */
+async function loadSelfCheck() {
+  const box = document.getElementById("env-panel");
+  if (!box) return;
+  box.innerHTML = `<span class="spinner"></span> Checking this machine…`;
+  try {
+    const res = await fetch("/api/selfcheck");
+    const data = await res.json();
+    const bad = data.blocking.length, warn = data.warnings.length;
+    const cls = bad ? "env-bad" : (warn ? "env-warn" : "env-good");
+    box.className = "env-panel " + cls;
+    box.innerHTML = `<div class="env-head">${bad ? `${bad} blocking problem(s)` : (warn ? `${warn} warning(s)` : "Environment ready")}</div>
+      <ul class="env-list">${data.checks.map(c =>
+        `<li class="env-${c.status}"><b>${esc(c.area)}</b> ${esc(c.message)}${c.fix ? ` <span class="env-fix">→ ${esc(c.fix)}</span>` : ""}</li>`).join("")}</ul>`;
+  } catch (e) {
+    box.className = "env-panel env-warn";
+    box.innerHTML = "Environment check unavailable.";
+  }
 }
 
 document.addEventListener("DOMContentLoaded", init);
