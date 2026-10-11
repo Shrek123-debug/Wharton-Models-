@@ -174,12 +174,12 @@ python scripts/build_example_workbooks.py     # regenerate the example input wor
 cd portfolio_model && python -m pytest tests -q
 ```
 
-82 tests: returns math, ingestion/validation robustness, covariance and portfolio stats,
-VaR/CVaR, HHI, Markov transitions, Monte Carlo path mechanics, bootstrap, sensitivity
-interpretation, the rule-flag engine, the offline data layer, override validation, glossary
-completeness, documentation freshness, example-workbook ingestion, and an end-to-end offline
-pipeline run (determinism, no silent NaNs, every deliverable present). CI runs the suite with
-`PORTFOLIO_OFFLINE=1` on Python 3.11 and 3.12.
+100 tests: returns math, ingestion/validation robustness, covariance and portfolio stats,
+VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
+bootstrap, sensitivity interpretation, the rule-flag engine, the offline data layer, override
+validation, glossary completeness, documentation freshness, example-workbook ingestion,
+degenerate inputs, and an end-to-end offline pipeline run (determinism, no silent NaNs, every
+deliverable present). CI runs the suite with `PORTFOLIO_OFFLINE=1` on Python 3.11 and 3.12.
 
 ## Key modeling principles
 

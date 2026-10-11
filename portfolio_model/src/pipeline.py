@@ -24,6 +24,7 @@ from .reporting.docx_report import build_report
 from .reporting.excel import build_workbook
 from .returns.returns import annual_vol_monthly, annualize
 from .risk.risk import (
+    cluster_summary,
     concentration_report,
     correlation_clusters,
     correlation_flags,
@@ -321,6 +322,8 @@ def run(input_path: str | None = None, config_path: str | None = None,
     conc = concentration_report(holdings.set_index("ticker")["weight"])
     corr_flags = correlation_flags(port.corr, cfg["risk"]["correlation_threshold"])
     clusters = correlation_clusters(port.corr, cfg["risk"]["correlation_threshold"])
+    cluster_df = cluster_summary(port.corr, holdings.set_index("ticker")["weight"],
+                                 cfg["risk"]["correlation_threshold"])
     dd_dist = drawdown_distribution(mc["portfolio_paths"][:, :mc["split_month"]])
 
     # 25. sector attribution
@@ -536,6 +539,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "corr": port.corr, "sec_corr": sec_corr, "attr": attr, "conc": conc,
         "var_table": var_table, "dd_dist": dd_dist, "clusters": clusters,
         "confidence": confidence, "figures": figs, "opt": opt,
+        "cluster_sheet": cluster_df,
         "data_provenance": pd.DataFrame(prov_rows),
         "exec_summary": exec_lines,
         "overview_text": f"{len(holdings)} holdings; total invested contributions ${total_contrib:,} (2027-2028); "
@@ -686,6 +690,8 @@ def _role(h) -> str:
 def _risk_rating(h, conf, clusters) -> str:
     if conf == "Low":
         return "High (short history)"
+    if h["ticker"] != "CASH" and clusters.get(h["ticker"], "independent") != "independent":
+        return "Elevated (correlated cluster)"
     if h.get("volatility") and float(h["volatility"]) >= 0.35:
         return "Elevated (high volatility)"
     return "Moderate"
@@ -696,7 +702,6 @@ def _holdings_sheet(holdings, port, params, var_table, clusters, confidence, att
     attr_map = attr.set_index("ticker")
     for _, h in holdings.iterrows():
         t = h["ticker"]
-        params["corr"]
         beta = float(np.cov(port.monthly_returns[t].fillna(0), port.portfolio_monthly)[0, 1] /
                      np.var(port.portfolio_monthly)) if t in port.monthly_returns.columns and t != "CASH" else 0.0
         vol = float(params["vol_annual"][list(holdings["ticker"]).index(t)])
@@ -710,7 +715,7 @@ def _holdings_sheet(holdings, port, params, var_table, clusters, confidence, att
             flags.append("HIGH CONCENTRATION")
         if confidence.get(t) == "Low":
             flags.append("LOW CONFIDENCE")
-        if clusters.get(t, -1) >= 0 and t != "CASH":
+        if t != "CASH" and clusters.get(t, "independent") != "independent":
             flags.append("CORRELATION CLUSTER")
         rows.append({
             "ticker": t, "asset_class": h["asset_class"], "sector": h["sector"],

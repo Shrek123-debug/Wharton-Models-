@@ -329,6 +329,7 @@ def build_payload(results: dict) -> dict:
         "markov_misc": df_records(results["markov_misc"]),
         "mc_percentiles": df_records(results["mc_percentiles"]),
         "risk": df_records(results["risk_sheet"]),
+        "clusters": df_records(results.get("cluster_sheet")),
         "var_table": df_records(results["var_table"]),
         "sensitivity": df_records(results["sensitivity_sheet"]),
         "stress": df_records(results["stress_sheet"]),

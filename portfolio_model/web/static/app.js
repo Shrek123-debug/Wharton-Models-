@@ -300,6 +300,8 @@ function renderRisk() {
       <div class="card">${tableBlock("var_table", { title: "VaR / CVaR (one-month horizon)" })}</div>
     </div>
     <div class="card"><div class="sub-head">Concentration &amp; correlation</div>${textBlock("concentration_text")}${textBlock("correlation_text")}${textBlock("risk_text")}</div>
+    <div class="card">${tableBlock("clusters", { title: "Correlated clusters — holdings that are really one bet" })}
+      <p class="mini-note">A cluster is a set of holdings whose monthly correlation exceeds the configured threshold. Their combined weight is the size of the single bet they represent.</p></div>
     <div class="card">${chart("corr_heatmap")}</div>
     <div class="card">${tableBlock("stops", { title: "Stop-Loss Backtests (historical, not advice)", cap: 30 })}</div>`;
 }

@@ -257,14 +257,17 @@ python -m pytest              # from the repo root (pytest.ini configured)
 cd portfolio_model && python -m pytest tests -q
 ```
 
-82 tests cover returns math, ingestion/validation robustness, covariance and portfolio
-stats, VaR/CVaR, HHI, Markov transitions, Monte Carlo path mechanics, bootstrap, sensitivity
-interpretation, the rule-flag engine, the offline data layer, override validation, glossary
-completeness, documentation freshness, example-workbook ingestion, and an end-to-end offline
-pipeline run with determinism and no-silent-NaN checks.
+100 tests cover returns math, ingestion/validation robustness, covariance and portfolio
+stats, VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
+bootstrap, sensitivity interpretation, the rule-flag engine, the offline data layer, override
+validation, glossary completeness, documentation freshness, example-workbook ingestion,
+degenerate inputs (single holding, all cash, unknown ticker, negative weight, foreign ticker,
+crisis windows outside the price history), and an end-to-end offline pipeline run with
+determinism and no-silent-NaN checks.
 
-CI (`.github/workflows/ci.yml`) runs on Python 3.11 and 3.12 with `PORTFOLIO_OFFLINE=1`, so
-an accidental dependency on the network fails the build instead of passing on a laptop.
+CI (`.github/workflows/ci.yml`) runs `ruff check .` and the suite on Python 3.11 and 3.12
+with `PORTFOLIO_OFFLINE=1`, so an accidental dependency on the network fails the build
+instead of passing on a laptop.
 
 ---
 

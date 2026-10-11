@@ -159,8 +159,12 @@ def build_workbook(path: Path, results: dict) -> Path:
     ws = wb.create_sheet("Risk")
     end = _write_df(ws, results["risk_sheet"], 1, "Portfolio Risk Metrics",
                     pct_cols=("value",))
-    _write_df(ws, results["recovery_sheet"], end, "Major Drawdown Recovery Events",
-              pct_cols=("drawdown",))
+    end = _write_df(ws, results["recovery_sheet"], end, "Major Drawdown Recovery Events",
+                    pct_cols=("drawdown",))
+    clusters = results.get("cluster_sheet")
+    if clusters is not None and len(clusters):
+        _write_df(ws, clusters, end, "Correlated Clusters (holdings that are really one bet)",
+                  pct_cols=("combined_weight", "mean_pairwise_correlation"))
     _autosize(ws)
 
     # ---- Sheet 12: Stress Tests
