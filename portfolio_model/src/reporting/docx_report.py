@@ -191,6 +191,24 @@ def build_report(path: Path, results: dict) -> Path:
         rdf = pd.DataFrame(rule_flags)[["id", "severity", "category", "metric", "current_value",
                                         "threshold", "rule", "action"]]
         _table(doc, rdf, max_rows=60)
+
+        # Explain the metric each actionable flag is built on, so the suggestion is not a
+        # number the reader has to go and look up somewhere else.
+        from ..metric_glossary import GLOSSARY, lookup
+
+        notable = [f for f in rule_flags if f.get("severity") in ("CRITICAL", "HIGH")]
+        if notable:
+            _h(doc, "19.6 What each high-severity flag is really about", 2)
+            for f in notable:
+                key = f.get("glossary_key") or lookup(f.get("metric"))
+                entry = GLOSSARY.get(key or "")
+                _p(doc, f"{f['id']} ({f['severity']}) — {f.get('metric')}", bold=True)
+                if entry:
+                    _p(doc, f"Metric: {entry['meaning']}")
+                    _p(doc, f"How to read it here: {entry['read_as']}")
+                    _p(doc, f"The trap: {entry['caveat']}", italic=True)
+                _p(doc, f"Do this: {f.get('action')}")
+                _p(doc, f"Evidence: {f.get('evidence')}")
     else:
         _p(doc, "No rule flags triggered for the current configuration.")
 

@@ -13,6 +13,36 @@ import pandas as pd
 
 SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "WARNING": 2, "MONITOR": 3, "INFO": 4}
 
+# Every flag family maps to the glossary entry that explains the metric it compares.
+# This is what lets the report, the workbook and the web UI say "what this flag is about"
+# without re-describing the metric in three places.
+FLAG_GLOSSARY = {
+    "POS": "max_position_weight",
+    "DRF": "rebalance_band",
+    "GRP": "max_correlated_group_weight",
+    "SEC": "max_sector_weight",
+    "SBND": "max_sector_weight",
+    "CASH": "min_cash_weight",
+    "CORR": "correlation",
+    "HHI": "effective_n",
+    "DD": "max_drawdown_growth",
+    "TAIL": "cvar",
+    "RESV": "prob_all_payments_funded",
+    "SUCC": "prob_terminal_gt_start",
+    "MODEL": "engine_disagreement",
+    "CONF": "confidence",
+    "THESIS": "thesis_coverage",
+    "REBAL": "turnover",
+    "GLIDE": "glide_path",
+    "SENS": "fragile_vol_threshold",
+}
+
+
+def glossary_key_for(flag_id: str) -> str | None:
+    """Glossary key behind a flag id like 'RESV-05'."""
+    prefix = "".join(ch for ch in flag_id.split("-")[0] if ch.isalpha())
+    return FLAG_GLOSSARY.get(prefix)
+
 
 def _flag(flags: list, fid: str, severity: str, category: str, metric: str,
           current: float, threshold: float, rule: str, action: str,
@@ -28,6 +58,7 @@ def _flag(flags: list, fid: str, severity: str, category: str, metric: str,
         "action": action,
         "evidence": evidence,
         "format": fmt,
+        "glossary_key": glossary_key_for(fid),
     })
 
 

@@ -668,6 +668,62 @@ GLOSSARY: dict[str, dict] = {
         "action": "A high score with HIGH rule flags means the scorecard is measuring structure, not outcome.",
         "caveat": "It is a weighted judgement encoded in code; changing weights changes the score, not the portfolio.",
     },
+
+    # ------------------------------------------------------------------ rule caps (what the flags compare against)
+    "max_position_weight": {
+        "label": "Position weight cap",
+        "unit": "pct",
+        "formula": "risk.max_position_weight in the config, compared against each holding's weight.",
+        "meaning": "The largest single-name exposure the plan is allowed to carry.",
+        "read_as": "A breach says one company, not one sector, can move the whole plan. The severity follows how far past the cap it sits.",
+        "action": "Trim toward the cap in stages rather than in one trade, so the exit does not become the risk.",
+        "caveat": "Passing the cap test says nothing about correlated groups: several legal positions can be one economic bet.",
+    },
+    "max_sector_weight": {
+        "label": "Sector weight cap",
+        "unit": "pct",
+        "formula": "risk.max_sector_weight in the config, compared against each sector total.",
+        "meaning": "How much of the plan may sit in one sector.",
+        "read_as": "Sector caps catch concentration that position caps miss, because it aggregates several compliant holdings.",
+        "action": "Reduce the sector total, not just the biggest name in it.",
+        "caveat": "Sector labels come from a lookup table; an unmapped ticker lands in a catch-all sector and can hide real concentration.",
+    },
+    "max_correlated_group_weight": {
+        "label": "Correlated group cap",
+        "unit": "pct",
+        "formula": "risk.max_correlated_group_weight in the config, compared against the total weight of holdings whose correlation exceeds risk.correlation_threshold.",
+        "meaning": "The size of the single bet that several correlated holdings actually represent.",
+        "read_as": "This is the cap that tells the truth about diversification. A portfolio can pass every position and sector cap and still breach this one.",
+        "action": "Trim the group as a unit toward the cap.",
+        "caveat": "Correlation is estimated on shared history, so a cluster can be understated when a holding has a short record.",
+    },
+    "min_cash_weight": {
+        "label": "Cash floor",
+        "unit": "pct",
+        "formula": "risk.min_cash_weight in the config, compared against the cash-like weight.",
+        "meaning": "The minimum buffer the plan keeps outside market exposure.",
+        "read_as": "Below the floor, the first payment or the first drawdown has to be funded by selling something at whatever price is available.",
+        "action": "Restore the floor from the next contribution rather than by selling into a fall.",
+        "caveat": "Cash-like means excluded from simulation, so its return is zero in every scenario - it buys safety, not yield.",
+    },
+    "engine_disagreement": {
+        "label": "Engine disagreement spread",
+        "unit": "pct",
+        "formula": "Relative difference between the Monte Carlo and historical bootstrap values of the same metric.",
+        "meaning": "How much the answer depends on which model you believe.",
+        "read_as": "A large spread is a finding, not noise: it means the assumption set, not the holdings, is driving the answer.",
+        "action": "Report ranges rather than point estimates, and decide on the more conservative engine.",
+        "caveat": "The engines answer different questions, so some spread is expected. Only a spread in a decision-relevant metric matters.",
+    },
+    "thesis_coverage": {
+        "label": "Thesis coverage",
+        "unit": "count",
+        "formula": "Number of holdings with no stated investment thesis in the input.",
+        "meaning": "How much of the portfolio has no written reason for being there.",
+        "read_as": "A missing thesis is not a risk estimate, it is a governance gap: it means nobody wrote down why the position should exist.",
+        "action": "Write the thesis in the input's thesis column, or remove the position.",
+        "caveat": "The model cannot judge whether a thesis is good, only whether one is recorded.",
+    },
 }
 
 

@@ -78,7 +78,14 @@ SECTIONS: list[tuple[str, str, list[str]]] = [
      ["confidence", "data_provenance", "adjusted_close_basis", "survivorship_bias",
       "pl_note", "tax_note"]),
 
-    ("11. Scorecard",
+    ("11. Rule caps and thresholds (what the flags compare against)",
+     "Every rule flag is a measured value against a cap you configured. These are those caps, "
+     "and what breaching one actually means.",
+     ["max_position_weight", "max_sector_weight", "max_correlated_group_weight",
+      "min_cash_weight", "rebalance_band", "engine_disagreement", "thesis_coverage",
+      "rule_flag", "severity_levels"]),
+
+    ("12. Scorecard",
      "A triage summary, deliberately not the conclusion.",
      ["scorecard"]),
 ]

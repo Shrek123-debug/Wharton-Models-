@@ -108,7 +108,7 @@ function flagCard(f) {
   return `<div class="flag-card sev-${f.severity}">
     <div class="flag-head"><span class="sev-badge sev-${f.severity}">${SEV_ICON[f.severity] || ""} ${f.severity}</span>
       <span class="flag-id">${esc(f.id)}</span><span class="flag-cat">${esc(f.category)}</span></div>
-    <div class="flag-metric">${esc(f.metric)}</div>
+    <div class="flag-metric">${esc(f.metric)} ${infoBtn(f.glossary_key || f.metric)}</div>
     <div class="flag-values"><span><b>Current:</b> ${fmt(f.current_value, 3)}</span>
       <span><b>Threshold:</b> ${fmt(f.threshold, 3)}</span></div>
     <div class="flag-rule"><b>Rule:</b> ${esc(f.rule)}</div>

@@ -194,8 +194,13 @@ def build_workbook(path: Path, results: dict) -> Path:
     ws = wb.create_sheet("Rule Flags")
     rule_df = pd.DataFrame(results.get("rule_flags", []))
     if len(rule_df):
-        rule_df = rule_df[["id", "severity", "category", "metric", "current_value", "threshold",
-                           "rule", "action", "evidence"]]
+        from ..metric_glossary import GLOSSARY
+
+        rule_df = rule_df.copy()
+        rule_df["metric_definition"] = rule_df.get("glossary_key").map(
+            lambda k: GLOSSARY[k]["meaning"] if isinstance(k, str) and k in GLOSSARY else "")
+        rule_df = rule_df[["id", "severity", "category", "metric", "metric_definition",
+                           "current_value", "threshold", "rule", "action", "evidence"]]
         end = _write_df(ws, rule_df, 1, "Rule-Based Risk & Rebalancing Flags (deterministic; thresholds from config)")
         ws.cell(row=end, column=1,
                 value="These are rule-based portfolio risk flags, not AI-generated recommendations.").font = Font(italic=True, size=9)

@@ -11,7 +11,7 @@
 4. **When two engines disagree, that is a finding.** The comparison and disagreement sheets exist to make the disagreement visible, not to average it away.
 5. **Assumptions are configurable, and they are the real drivers.** Expected returns, inflation, the reserve discount rate and the glide path move the conclusions far more than the choice of engine.
 
-Quick index: [Inputs and assumptions](#inputs-and-assumptions) · [Historical portfolio metrics](#historical-portfolio-metrics) · [Plan mechanics (money in, obligation out)](#plan-mechanics-money-in-obligation-out) · [Simulation outcomes](#simulation-outcomes) · [The three engines and why they disagree](#the-three-engines-and-why-they-disagree) · [Risk measures (VaR and CVaR)](#risk-measures-var-and-cvar) · [Sensitivity and stress](#sensitivity-and-stress) · [Stops and optimisation](#stops-and-optimisation) · [Suggestions: how the rule flags work](#suggestions:-how-the-rule-flags-work) · [Data quality and what the model refuses to invent](#data-quality-and-what-the-model-refuses-to-invent) · [Scorecard](#scorecard)
+Quick index: [Inputs and assumptions](#inputs-and-assumptions) · [Historical portfolio metrics](#historical-portfolio-metrics) · [Plan mechanics (money in, obligation out)](#plan-mechanics-money-in-obligation-out) · [Simulation outcomes](#simulation-outcomes) · [The three engines and why they disagree](#the-three-engines-and-why-they-disagree) · [Risk measures (VaR and CVaR)](#risk-measures-var-and-cvar) · [Sensitivity and stress](#sensitivity-and-stress) · [Stops and optimisation](#stops-and-optimisation) · [Suggestions: how the rule flags work](#suggestions:-how-the-rule-flags-work) · [Data quality and what the model refuses to invent](#data-quality-and-what-the-model-refuses-to-invent) · [Rule caps and thresholds (what the flags compare against)](#rule-caps-and-thresholds-what-the-flags-compare-against) · [Scorecard](#scorecard)
 
 ## 1. Inputs and assumptions
 
@@ -743,7 +743,101 @@ These rows are the model telling you where its own numbers are weak.
 - **What to do about it:** Stage trims across years, as the position-cap action text suggests.
 - **Trap:** Transaction cost is modelled (0.1% of turnover); tax is not modelled at all.
 
-## 11. Scorecard
+## 11. Rule caps and thresholds (what the flags compare against)
+
+Every rule flag is a measured value against a cap you configured. These are those caps, and what breaching one actually means.
+
+### Position weight cap
+
+*Glossary key: `max_position_weight` · unit: pct*
+
+- **What it is:** risk.max_position_weight in the config, compared against each holding's weight.
+- **What it measures:** The largest single-name exposure the plan is allowed to carry.
+- **How to read it for this portfolio:** A breach says one company, not one sector, can move the whole plan. The severity follows how far past the cap it sits.
+- **What to do about it:** Trim toward the cap in stages rather than in one trade, so the exit does not become the risk.
+- **Trap:** Passing the cap test says nothing about correlated groups: several legal positions can be one economic bet.
+
+### Sector weight cap
+
+*Glossary key: `max_sector_weight` · unit: pct*
+
+- **What it is:** risk.max_sector_weight in the config, compared against each sector total.
+- **What it measures:** How much of the plan may sit in one sector.
+- **How to read it for this portfolio:** Sector caps catch concentration that position caps miss, because it aggregates several compliant holdings.
+- **What to do about it:** Reduce the sector total, not just the biggest name in it.
+- **Trap:** Sector labels come from a lookup table; an unmapped ticker lands in a catch-all sector and can hide real concentration.
+
+### Correlated group cap
+
+*Glossary key: `max_correlated_group_weight` · unit: pct*
+
+- **What it is:** risk.max_correlated_group_weight in the config, compared against the total weight of holdings whose correlation exceeds risk.correlation_threshold.
+- **What it measures:** The size of the single bet that several correlated holdings actually represent.
+- **How to read it for this portfolio:** This is the cap that tells the truth about diversification. A portfolio can pass every position and sector cap and still breach this one.
+- **What to do about it:** Trim the group as a unit toward the cap.
+- **Trap:** Correlation is estimated on shared history, so a cluster can be understated when a holding has a short record.
+
+### Cash floor
+
+*Glossary key: `min_cash_weight` · unit: pct*
+
+- **What it is:** risk.min_cash_weight in the config, compared against the cash-like weight.
+- **What it measures:** The minimum buffer the plan keeps outside market exposure.
+- **How to read it for this portfolio:** Below the floor, the first payment or the first drawdown has to be funded by selling something at whatever price is available.
+- **What to do about it:** Restore the floor from the next contribution rather than by selling into a fall.
+- **Trap:** Cash-like means excluded from simulation, so its return is zero in every scenario - it buys safety, not yield.
+
+### Rebalancing band
+
+*Glossary key: `rebalance_band` · unit: pct*
+
+- **What it is:** Absolute: target +/- band percentage points. Relative: target x (1 +/- relative_band).
+- **What it measures:** How far a class may drift before the model forces a trade.
+- **How to read it for this portfolio:** Tight bands mean more trades and more transaction cost; loose bands mean the glide path is advisory only.
+- **What to do about it:** Check mean_turnover and mean_rebalances to see what the band actually costs.
+- **Trap:** Bands are tested on asset *class* weights at month end, not on individual holdings.
+
+### Engine disagreement spread
+
+*Glossary key: `engine_disagreement` · unit: pct*
+
+- **What it is:** Relative difference between the Monte Carlo and historical bootstrap values of the same metric.
+- **What it measures:** How much the answer depends on which model you believe.
+- **How to read it for this portfolio:** A large spread is a finding, not noise: it means the assumption set, not the holdings, is driving the answer.
+- **What to do about it:** Report ranges rather than point estimates, and decide on the more conservative engine.
+- **Trap:** The engines answer different questions, so some spread is expected. Only a spread in a decision-relevant metric matters.
+
+### Thesis coverage
+
+*Glossary key: `thesis_coverage` · unit: count*
+
+- **What it is:** Number of holdings with no stated investment thesis in the input.
+- **What it measures:** How much of the portfolio has no written reason for being there.
+- **How to read it for this portfolio:** A missing thesis is not a risk estimate, it is a governance gap: it means nobody wrote down why the position should exist.
+- **What to do about it:** Write the thesis in the input's thesis column, or remove the position.
+- **Trap:** The model cannot judge whether a thesis is good, only whether one is recorded.
+
+### Rule flag
+
+*Glossary key: `rule_flag` · unit: text*
+
+- **What it is:** Deterministic comparison of a calculated value against a configured threshold. Each flag carries id, severity, metric, current value, threshold, rule text, action and evidence.
+- **What it measures:** The suggestions in this report are rules, not opinions: every one can be traced to a number and a config key.
+- **How to read it for this portfolio:** Severity ladder: CRITICAL > HIGH > WARNING > MONITOR > INFO. HIGH means the number breaches a planning standard; MONITOR means watch it; INFO is context.
+- **What to do about it:** Work the flags in order; each action line is the specific response the rule was written to produce.
+- **Trap:** A flag is a threshold breach, not a forecast. No AI or judgement is involved, and no flag fires without a configured rule.
+
+### Severity ladder
+
+*Glossary key: `severity_levels` · unit: text*
+
+- **What it is:** CRITICAL, HIGH, WARNING, MONITOR, INFO (rules/rule_engine.py SEVERITY_ORDER).
+- **What it measures:** How much attention a finding deserves.
+- **How to read it for this portfolio:** HIGH = a configured planning standard is breached (position cap, reserve funding, tail loss, model disagreement). WARNING = a band or limit is out of tolerance. MONITOR = a data or governance weakness. INFO = context.
+- **What to do about it:** Fix HIGH before optimising anything at MONITOR.
+- **Trap:** Severity is about the rule, not about the size of the loss.
+
+## 12. Scorecard
 
 A triage summary, deliberately not the conclusion.
 
@@ -982,6 +1076,7 @@ One entry per figure in the web dashboard, generated from the same file as the c
 | `downside_deviation` | Downside deviation | pct | How violent the losing months are. |
 | `drawdown_peak_trough_recovery` | Drawdown peak / trough / recovery dates | text | The shape of the worst episode: how fast it fell and how long you waited. |
 | `effective_n` | Effective number of independent bets | count | How many truly separate bets the weighting is equivalent to. |
+| `engine_disagreement` | Engine disagreement spread | pct | How much the answer depends on which model you believe. |
 | `expected_duration` | Expected regime duration | years | How long the portfolio is expected to stay in a regime once it is there. |
 | `expected_return` | Expected return (annual) | pct | The central return assumption driving every simulation. |
 | `facility_contribution` | Facility contribution | money | What is left for the facility after the reserve obligation is met. |
@@ -992,10 +1087,14 @@ One entry per figure in the web dashboard, generated from the same file as the c
 | `inflation_base` | Inflation assumption | pct | The price-level assumption behind every 'real' or 'above floor' probability. |
 | `markov` | Markov regime engine | text | A model of *regimes*: whether the portfolio is likely to spend the next years in bear or bull conditions. |
 | `markov_states` | Regime states and thresholds | pct | The definition of 'bad year' the whole regime model depends on. |
+| `max_correlated_group_weight` | Correlated group cap | pct | The size of the single bet that several correlated holdings actually represent. |
 | `max_drawdown` | Max drawdown (historical) | pct | The deepest peak-to-trough fall actually experienced. |
 | `max_drawdown_growth` | Max drawdown (growth phase) | pct | How painful the ride to 2033 is likely to be. |
+| `max_position_weight` | Position weight cap | pct | The largest single-name exposure the plan is allowed to carry. |
+| `max_sector_weight` | Sector weight cap | pct | How much of the plan may sit in one sector. |
 | `mean_annual_return` | Mean annual return (historical) | pct | The average month, annualised by compounding. |
 | `median_terminal` | Median terminal value | money | The middle outcome: half the simulations land below it. |
+| `min_cash_weight` | Cash floor | pct | The minimum buffer the plan keeps outside market exposure. |
 | `min_return_for_success` | Minimum return shift for 90% success | pct | How much of your return assumption you can lose before the plan stops working. |
 | `missed_upside` | Missed upside (stop backtest) | pct | The return given up by being out of the market after a stop. |
 | `monte_carlo` | Monte Carlo engine | text | What the plan does under a clean statistical model of the assumptions. |
@@ -1026,6 +1125,7 @@ One entry per figure in the web dashboard, generated from the same file as the c
 | `tax_note` | Taxes | text | All figures are pre-tax. |
 | `terminal_2033` | Terminal value (2033) | money | The outcome the whole plan is judged on. |
 | `terminal_percentiles` | Terminal percentiles (p5 ... p95) | money | The full range of plausible outcomes. |
+| `thesis_coverage` | Thesis coverage | count | How much of the portfolio has no written reason for being there. |
 | `top3_top5_top10` | Top 3 / 5 / 10 weight | pct | How much of the portfolio the biggest names control. |
 | `transition_matrix` | Transition matrix P | ratio | The probability of moving from one regime to another in one year. |
 | `turnover` | Turnover / rebalances (mean) | money | How much trading the policy actually requires. |
@@ -1035,4 +1135,4 @@ One entry per figure in the web dashboard, generated from the same file as the c
 | `volatility` | Volatility (annual) | pct | How widely a holding's monthly returns scatter around their average. |
 | `weights_source` | Weights source | text | Tells you the origin of the allocation the whole model is built on. |
 
-_70 metric definitions. Add a key to `src/metric_glossary.py` and re-run the generator to extend every view at once._
+_76 metric definitions. Add a key to `src/metric_glossary.py` and re-run the generator to extend every view at once._

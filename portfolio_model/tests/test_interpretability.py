@@ -224,3 +224,59 @@ def test_report_contains_every_numbered_section_it_claims():
     for must in ("How to read this report", "Final Conclusions", "Monitoring Checklist",
                  "Appendix A. Metric Definitions"):
         assert must in top, f"report is missing the {must!r} section"
+
+
+def test_every_rule_flag_points_at_a_real_metric_definition():
+    """A suggestion is only useful if the metric behind it is defined somewhere."""
+    from src.metric_glossary import GLOSSARY
+    from src.rules.rule_engine import FLAG_GLOSSARY, glossary_key_for
+
+    dangling = {prefix: key for prefix, key in FLAG_GLOSSARY.items() if key not in GLOSSARY}
+    assert not dangling, f"flag families point at undefined metrics: {dangling}"
+    for fid in ("POS-01", "GRP-02", "RESV-05", "MODEL-06", "THESIS-01", "TAIL-01", "SENS-01"):
+        assert glossary_key_for(fid) in GLOSSARY, f"{fid} has no glossary entry"
+
+
+def test_report_explains_each_high_severity_flag_in_place():
+    """Section 19.6 must define the metric, not just restate the number."""
+    import tempfile
+
+    from docx import Document
+
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    res = run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_full.xlsx"),
+              out_dir=str(out), overrides={"sims": 400, "sensitivity_sims": 200, "offline": "always"},
+              render_charts=False)
+    doc = Document(out / "report" / "portfolio_analysis_report.docx")
+    paras = [p.text for p in doc.paragraphs]
+    assert any(t.startswith("19.6") for t in paras), "report has no per-flag explanation section"
+
+    high = [f for f in res["rule_flags"] if f["severity"] in ("CRITICAL", "HIGH")]
+    assert high, "expected at least one high-severity flag for the example portfolio"
+    for f in high:
+        assert f["id"] in " ".join(paras), f"flag {f['id']} is not explained in the report"
+    joined = " ".join(paras)
+    assert joined.count("Metric: ") >= len(high), "flags are listed without defining their metric"
+    assert joined.count("The trap: ") >= len(high), "flags are listed without their misreading warning"
+
+
+def test_workbook_rule_flags_sheet_carries_the_metric_definition():
+    import tempfile
+
+    from openpyxl import load_workbook
+
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_full.xlsx"),
+        out_dir=str(out), overrides={"sims": 400, "sensitivity_sims": 200, "offline": "always"},
+        render_charts=False)
+    ws = load_workbook(out / "spreadsheet" / "portfolio_analysis.xlsx")["Rule Flags"]
+    header_row = next(r for r in ws.iter_rows(max_col=12) if r[0].value == "id")
+    headers = [c.value for c in header_row if c.value]
+    assert "metric_definition" in headers, f"Rule Flags sheet has no definition column: {headers}"
+    first_data = next(ws.iter_rows(min_row=header_row[0].row + 1, max_col=len(headers)))
+    values = dict(zip(headers, [c.value for c in first_data]))
+    assert values.get("metric_definition"), "the definition column is empty on the first flag"
