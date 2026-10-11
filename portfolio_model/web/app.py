@@ -21,7 +21,7 @@ WEB_DIR = Path(__file__).resolve().parent
 PACKAGE_ROOT = WEB_DIR.parent
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from src.config import load_config, resolve  # noqa: E402
+from src.config import ConfigError, load_config, resolve  # noqa: E402
 from src.metric_glossary import ALIASES, GLOSSARY  # noqa: E402
 from src.pipeline import PipelineError, run  # noqa: E402
 from src.selfcheck import collect_checks  # noqa: E402
@@ -66,6 +66,9 @@ def _execute(job: dict, input_path: Path, overrides: dict) -> None:
     except PipelineError as exc:
         job["status"] = "error"
         job["error"] = f"Run option problem: {exc}"
+    except ConfigError as exc:
+        job["status"] = "error"
+        job["error"] = f"Config problem: {exc}"
     except SystemExit as exc:
         job["status"] = "error"
         job["error"] = f"Input problem: {exc}"

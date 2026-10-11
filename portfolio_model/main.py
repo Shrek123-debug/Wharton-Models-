@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from src.config import PACKAGE_ROOT  # noqa: E402
+from src.config import PACKAGE_ROOT, ConfigError  # noqa: E402
 from src.pipeline import PipelineError, run  # noqa: E402
 from src.runtime_env import configure_local_runtime  # noqa: E402
 
@@ -85,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
                       overrides=overrides or None, render_charts=not args.no_charts)
     except PipelineError as exc:
         print(f"\nINPUT/CONFIG PROBLEM: {exc}", file=sys.stderr)
+        return 2
+    except ConfigError as exc:
+        print(f"\nCONFIG PROBLEM:\n{exc}", file=sys.stderr)
         return 2
     except SystemExit as exc:  # validation failure raised inside the pipeline
         print(f"\nINPUT/CONFIG PROBLEM: {exc}", file=sys.stderr)

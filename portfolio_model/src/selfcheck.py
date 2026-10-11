@@ -34,7 +34,7 @@ OPTIONAL_PACKAGES = [
 
 def collect_checks(config_path: str | None = None, input_path: str | None = None) -> list[dict]:
     """Run every environment check and return [{area, status: ok|warn|fail, message, fix}]."""
-    from .config import PACKAGE_ROOT, load_config, resolve
+    from .config import PACKAGE_ROOT, ConfigError, load_config, resolve
 
     checks: list[dict] = []
 
@@ -77,7 +77,12 @@ def collect_checks(config_path: str | None = None, input_path: str | None = None
     # 4. config --------------------------------------------------------------
     try:
         cfg = load_config(config_path)
-        add("config", "ok", f"config loaded: {config_path or PACKAGE_ROOT / 'config' / 'model_config.yaml'}")
+        add("config", "ok", f"config loaded and validated: "
+                            f"{config_path or PACKAGE_ROOT / 'config' / 'model_config.yaml'}")
+    except ConfigError as exc:
+        add("config", "fail", str(exc).replace("\n", " ").strip(),
+            "fix the named key(s) in config/model_config.yaml, or restore the shipped config")
+        return checks
     except Exception as exc:
         add("config", "fail", f"config could not be read: {exc}", "fix config/model_config.yaml (YAML syntax)")
         return checks
