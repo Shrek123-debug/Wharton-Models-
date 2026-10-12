@@ -79,11 +79,23 @@ def build_workbook(path: Path, results: dict) -> Path:
 
     # ---- Sheet 2: Holdings
     ws = wb.create_sheet("Holdings")
-    _write_df(ws, results["holdings_sheet"], 1, "Holdings",
+    holdings_out = results["holdings_sheet"].copy()
+    profiles = {p["ticker"]: p for p in results.get("holding_profiles", [])}
+    if profiles:
+        holdings_out["role"] = holdings_out["ticker"].map(
+            lambda t: profiles.get(str(t), {}).get("role", ""))
+        holdings_out["what_this_position_means"] = holdings_out["ticker"].map(
+            lambda t: profiles.get(str(t), {}).get("what_it_means", ""))
+        holdings_out["history_behind_the_estimate"] = holdings_out["ticker"].map(
+            lambda t: profiles.get(str(t), {}).get("history", ""))
+    _write_df(ws, holdings_out, 1, "Holdings",
               pct_cols=("weight", "target_weight", "difference", "volatility", "expected_return",
                         "beta", "var_95", "cvar_95", "return_12m", "contribution_12m"),
               money_cols=("market_value",))
-    _autosize(ws)
+    for row in ws.iter_rows(min_row=4):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws, max_w=60)
 
     # ---- Sheet 3: Sector Allocation
     ws = wb.create_sheet("Sector Allocation")

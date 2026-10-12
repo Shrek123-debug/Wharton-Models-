@@ -14,7 +14,7 @@ from .attribution.attribution import holding_attribution, pl_note
 from .bootstrap.bootstrap import run_bootstrap
 from .config import PACKAGE_ROOT, load_config, resolve
 from .ingestion.ingest import ingest
-from .interpret import metric_values, worked_examples
+from .interpret import holding_profiles, metric_values, worked_examples
 from .market_data.fetch import align_price_frames, fetch_history
 from .markov.markov import STATE_NAMES, markov_summary, run_markov
 from .monte_carlo.mc import SimContext, required_reserve_pv, run_monte_carlo, summarize_simulation
@@ -571,6 +571,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
     # Worked examples: each headline metric, recalculated with this portfolio's own numbers.
     results["worked_examples"] = worked_examples(results)
     results["metric_values"] = metric_values(results)
+    results["holding_profiles"] = holding_profiles(results)
 
     # 34-37. outputs
     xlsx = build_workbook(out_dir / "spreadsheet" / "portfolio_analysis.xlsx", results)

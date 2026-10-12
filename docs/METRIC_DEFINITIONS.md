@@ -882,7 +882,7 @@ The generated workbook opens on a **Read Me** sheet rendered from the same sourc
 | Sheet | What it is for |
 |---|---|
 | `Executive Summary` | The headline numbers and the verdict, in one screen. |
-| `Holdings` | Every position: weight, sector, expected return, volatility, beta, cluster, confidence and thesis. |
+| `Holdings` | Every position: weight, sector, expected return, volatility, beta, cluster, confidence and thesis, plus what the position is for, what to watch about it, and the history its estimate rests on. |
 | `Sector Allocation` | Sector totals versus the configured targets, with the gap for each sector. |
 | `Correlation Matrix` | Pairwise monthly correlation between holdings. Look for blocks. |
 | `Historical Performance` | What the current weights would have done over the price history, with benchmarks. |

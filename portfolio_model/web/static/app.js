@@ -703,13 +703,34 @@ function renderWalkthrough() {
     <div class="we-trap"><b>The trap:</b> ${esc(e.the_trap)}</div>
     <div class="we-do"><b>What to do:</b> ${esc(e.what_to_do)}</div>
   </div>`).join("");
+  const profiles = (state.payload.holding_profiles || []).map(p => `
+    <div class="card hp-card">
+      <div class="hp-head"><span class="hp-ticker">${esc(p.ticker)}</span>
+        <span class="hp-weight">${esc(p.weight_text)} · ${esc(p.dollars)}</span>
+        <span class="hp-role">${esc(p.asset_class)} / ${esc(p.sector)}</span></div>
+      <div class="hp-line"><b>Role in the plan:</b> ${esc(p.role)}</div>
+      <div class="hp-line"><b>What to watch:</b> ${esc(p.what_it_means)}</div>
+      <div class="hp-facts">
+        <span>Expected return ${esc(p.expected_return)} ${infoBtn("expected_return")}</span>
+        <span>Volatility ${esc(p.volatility)} ${infoBtn("annual_volatility")}</span>
+        <span>Beta ${esc(p.beta)} ${infoBtn("correlation")}</span>
+        <span>12m contribution ${esc(p.contribution_12m)} ${infoBtn("contributions")}</span>
+        <span>Confidence ${esc(p.confidence)} ${infoBtn("confidence")}</span>
+      </div>
+      <div class="hp-history"><b>History behind the estimate:</b> ${esc(p.history)}</div>
+      <div class="hp-thesis"><b>Thesis:</b> ${esc(p.thesis)}</div>
+      ${p.flags && p.flags.length ? `<div class="hp-flags"><b>Flags on this position:</b><br>${p.flags.map(f => `• ${esc(f)}`).join("<br>")}</div>` : ""}
+    </div>`).join("");
   return `<div class="card"><div class="sub-head">Guided Walkthrough</div>
     <p class="narrative">Every headline metric below is recalculated using <b>this portfolio's own numbers</b>,
     so you can see the arithmetic that produced the figure rather than trusting it. Nothing on this page is
     generated commentary: it is the same values the engines returned, written out.</p>
     <p class="mini-note">${ex.length} worked examples · ${esc((state.payload.meta.data_sources || "n/a"))} prices ·
     seed ${esc(state.payload.meta.seed)} · ${Number(state.payload.meta.n_sims).toLocaleString()} simulations</p>
-  </div>${cards}`;
+  </div>${cards}
+  ${profiles ? `<div class="card"><div class="sub-head">Position by position</div>
+    <p class="mini-note">What each holding is for, how much of the plan it carries, and the specific thing
+    to watch about it.</p></div>${profiles}` : ""}`;
 }
 
 function renderDefs() {

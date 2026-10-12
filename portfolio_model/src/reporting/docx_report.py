@@ -273,6 +273,21 @@ def build_report(path: Path, results: dict) -> Path:
             _p(doc, f"The trap: {e['the_trap']}", italic=True)
             _p(doc, f"What to do: {e['what_to_do']}")
 
+    # Appendix C: position-by-position guide
+    profiles = results.get("holding_profiles") or []
+    if profiles:
+        doc.add_page_break()
+        _h(doc, "Appendix C. Position-by-Position Guide")
+        _p(doc, "What each holding contributes, how much of the plan it carries, and the specific "
+                "thing to watch about it. Every value is this run's own measurement.", italic=True)
+        _table(doc, pd.DataFrame([
+            {"ticker": p["ticker"], "weight": p["weight"], "role": p["role"],
+             "expected_return": p["expected_return"], "volatility": p["volatility"],
+             "contribution_12m": p["contribution_12m"], "confidence": p["confidence"],
+             "history": p["history"], "what_to_watch": p["what_it_means"]}
+            for p in profiles
+        ]), max_rows=len(profiles))
+
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(path)
     return path

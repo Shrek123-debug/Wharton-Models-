@@ -386,3 +386,111 @@ def metric_values(results: dict) -> dict[str, str]:
     put("correlation_cluster",
         f"{len(clusters)} cluster(s)" if clusters is not None else "n/a")
     return values
+
+
+def holding_profiles(results: dict) -> list[dict]:
+    """One interpretation per holding, built from this run's own per-position numbers.
+
+    The portfolio-level worked examples say what the plan looks like. This answers the question a
+    reader actually asks next: "and what about this one position?" Every field comes from the run;
+    nothing is inferred about a holding that the run did not measure.
+    """
+    cfg = results["cfg"]
+    sheet = results["holdings_sheet"]
+    if not len(sheet):
+        return []
+
+    prov = results.get("data_provenance")
+    prov_by_ticker = {}
+    if prov is not None and len(prov):
+        prov_by_ticker = {str(r["ticker"]): r for _, r in prov.iterrows()}
+
+    clusters = results.get("cluster_sheet")
+    cluster_weight = {}
+    if clusters is not None and len(clusters):
+        for _, c in clusters.iterrows():
+            for member in [m.strip() for m in str(c["members"]).split(",")]:
+                cluster_weight[member] = (float(c["combined_weight"]), str(c["members"]),
+                                          float(c["mean_pairwise_correlation"]))
+
+    flags = results.get("rule_flags", [])
+    total_contrib = sum(c["amount"] for c in cfg["cashflows"]["contributions"])
+    max_pos = cfg["risk"]["max_position_weight"]
+
+    out: list[dict] = []
+    for _, h in sheet.iterrows():
+        t = str(h["ticker"])
+        weight = float(h["weight"])
+        row: dict = {
+            "ticker": t,
+            "asset_class": str(h["asset_class"]),
+            "sector": str(h["sector"]),
+            "weight": weight,
+            "weight_text": _pct(weight),
+        }
+
+        # what this position is expected to do
+        er, vol = float(h["expected_return"]), float(h["volatility"])
+        row["expected_return"] = _pct(er)
+        row["volatility"] = _pct(vol)
+        row["beta"] = _num(float(h["beta"]), 2)
+        row["sharpe"] = _num(float(h["sharpe"]), 2)
+        row["return_12m"] = _pct(float(h["return_12m"]))
+        row["contribution_12m"] = _pct(float(h["contribution_12m"]))
+
+        # how much of the plan this one position carries
+        row["dollars"] = _money(weight * total_contrib)
+        row["role"] = _holding_role(t, weight, vol, str(h["asset_class"]))
+
+        # concentration and clustering, with the numbers that decide it
+        notes: list[str] = []
+        if weight > max_pos:
+            notes.append(f"Over the position cap: {_pct(weight)} against {_pct(max_pos)} "
+                         f"({_pct(weight - max_pos)} too much).")
+        elif weight > max_pos * 0.8:
+            notes.append(f"Within 20% of the position cap ({_pct(weight)} vs {_pct(max_pos)}); "
+                         f"any drift puts it in breach.")
+        if t in cluster_weight:
+            cw, members, mean_corr = cluster_weight[t]
+            cap = cfg["risk"]["max_correlated_group_weight"]
+            state = "over" if cw > cap else "within"
+            notes.append(f"Part of one bet with {members}: mean correlation {_num(mean_corr, 2)}, "
+                         f"combined weight {_pct(cw)}, which is {state} the {_pct(cap)} group cap.")
+
+        # how much the model actually trusts this series
+        p = prov_by_ticker.get(t)
+        if p is not None:
+            row["history"] = (f"{int(p['rows'])} rows from {p['inception']} to {p['data_as_of']} "
+                              f"({p['source']})") if p.get("rows") else "no usable history"
+        else:
+            row["history"] = "not a market series (cash-like or excluded)"
+        row["confidence"] = str(h["confidence"])
+        if row["confidence"] == "Low":
+            notes.append("Short history: its expected return and correlation are the weakest "
+                         "inputs feeding the simulations.")
+
+        row["thesis"] = str(h["thesis"]) if str(h["thesis"]) != "MISSING" else "none recorded"
+        if row["thesis"] == "none recorded":
+            notes.append("No thesis recorded: the model cannot tell you why this position exists.")
+
+        # the flags that are specifically about this holding
+        row["flags"] = [f"{f['id']} ({f['severity']}) {f['action']}" for f in flags
+                        if t in str(f.get("metric", "")) or t in str(f.get("evidence", ""))]
+        row["what_it_means"] = " ".join(notes) or (
+            f"{_pct(weight)} of the plan in {row['asset_class']}, inside every cap and not part of "
+            f"a correlated cluster.")
+        out.append(row)
+    return out
+
+
+def _holding_role(ticker: str, weight: float, vol: float, asset_class: str) -> str:
+    """Plain-language role, from the weight and volatility this run measured."""
+    if asset_class == "Cash":
+        return "Buffer: excluded from the simulations, so it earns nothing in any scenario and is " \
+               "there only to fund the first payments without selling."
+    if vol >= 0.35:
+        return f"High-volatility engine: {vol:.0%} annual volatility drives most of the spread in " \
+               f"the terminal distribution."
+    if vol <= 0.12:
+        return "Stabiliser: low volatility, so its job is to shorten drawdowns rather than add return."
+    return f"Core exposure at {weight:.0%} of the plan with {vol:.0%} annual volatility."

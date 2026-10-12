@@ -8,6 +8,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))
 
@@ -387,3 +389,85 @@ def test_metric_values_binds_definitions_to_this_runs_numbers():
 def build_payload_for(res):
     from web.serialize import build_payload
     return build_payload(res)
+
+
+def _profiles_for_example_portfolio():
+    import tempfile
+
+    from src.interpret import holding_profiles
+    from src.pipeline import run
+
+    res = run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_full.xlsx"),
+              out_dir=str(Path(tempfile.mkdtemp())),
+              overrides={"sims": 400, "sensitivity_sims": 200, "offline": "always"},
+              render_charts=False)
+    return res, holding_profiles(res)
+
+
+def test_every_holding_gets_a_position_profile_with_real_numbers():
+    res, profiles = _profiles_for_example_portfolio()
+    assert len(profiles) == len(res["holdings_sheet"]), "one profile per holding, no exceptions"
+    for p in profiles:
+        for field in ("ticker", "weight_text", "role", "expected_return", "volatility", "beta",
+                      "contribution_12m", "confidence", "history", "thesis", "what_it_means"):
+            assert str(p.get(field, "")).strip(), f"{p.get('ticker')} profile is missing {field}"
+        assert p["weight_text"].endswith("%")
+        assert p["dollars"].startswith("$")
+
+    sheet_weights = {str(r["ticker"]): float(r["weight"]) for _, r in res["holdings_sheet"].iterrows()}
+    for p in profiles:
+        assert p["weight"] == pytest.approx(sheet_weights[p["ticker"]]), \
+            f"{p['ticker']} profile weight {p['weight']} does not match the run"
+
+
+def test_position_profiles_state_the_cap_arithmetic_when_a_cap_is_breached():
+    import tempfile
+
+    from src.interpret import holding_profiles
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    res = run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_minimal.xlsx"),
+              out_dir=str(out), overrides={"sims": 400, "sensitivity_sims": 200, "offline": "always",
+                                           "max_position": 0.20}, render_charts=False)
+    profiles = holding_profiles(res)
+    over = [p for p in profiles if "Over the position cap" in p["what_it_means"]]
+    assert over, "a holding above the configured cap should be called out with its arithmetic"
+    p = over[0]
+    assert f"{p['weight']:.1%}".replace(" ", "") in p["what_it_means"].replace(" ", "")
+    assert "20.0%" in p["what_it_means"], p["what_it_means"]
+
+
+def test_cluster_membership_is_explained_per_holding():
+    _, profiles = _profiles_for_example_portfolio()
+    clustered = [p for p in profiles if "Part of one bet with" in p["what_it_means"]]
+    if not clustered:
+        pytest.skip("this portfolio has no correlated cluster to explain")
+    text = clustered[0]["what_it_means"]
+    assert "combined weight" in text and "group cap" in text, text
+
+
+def test_position_guide_reaches_the_workbook_and_the_report():
+    import tempfile
+
+    from docx import Document
+    from openpyxl import load_workbook
+
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_full.xlsx"),
+        out_dir=str(out), overrides={"sims": 400, "sensitivity_sims": 200, "offline": "always"},
+        render_charts=False)
+
+    ws = load_workbook(out / "spreadsheet" / "portfolio_analysis.xlsx")["Holdings"]
+    rows = list(ws.iter_rows(max_col=25, values_only=True))
+    header = next(r for r in rows if r and r[0] == "ticker")
+    for col in ("role", "what_this_position_means", "history_behind_the_estimate"):
+        assert col in header, f"Holdings sheet is missing the {col} column"
+    idx = header.index("what_this_position_means")
+    filled = [r[idx] for r in rows[rows.index(header) + 1:] if r[0] and r[idx]]
+    assert filled, "the position interpretation column is empty"
+
+    doc = Document(out / "report" / "portfolio_analysis_report.docx")
+    assert any(p.text.startswith("Appendix C") for p in doc.paragraphs), "no position guide in the report"
