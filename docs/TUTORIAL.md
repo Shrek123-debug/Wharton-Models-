@@ -217,25 +217,61 @@ explains the model better than any description.
 
 ---
 
-## 7. Worked example: what the example portfolio's flags mean
+## 7. Read your first result, number by number
 
-Running the full example produces flags along these lines (numbers vary with data vintage):
+Open `docs/sample_output/sample_output.xlsx` (or run the example yourself) and follow the same
+order a decision actually takes. Every figure below is from that committed sample run: 8 holdings,
+4,000 simulations, seed 42, offline data.
 
-- **POS-01 · HIGH · Concentration** — a holding above the 25% cap. *Action:* trim toward the
-  cap, staged across years for tax. This is a policy breach, not a market view.
-- **RESV-01 · HIGH · Funding Risk** — bootstrap says the 10 reserve payments are funded well
-  below the 90% planning standard. *This is the most important finding in the report.* The
-  Monte Carlo number looks comfortable; the bootstrap number does not, because the bootstrap
-  has actually lived through 2008 and 2020. Plan against the bootstrap.
-- **MODEL-01 · HIGH · Model Risk** — the two engines disagree materially. *Action:* report a
-  range, not a point estimate. Disagreement is information about distribution shape.
-- **TAIL-01 · HIGH · Tail Risk** — terminal CVaR95 above 30%. *Meaning:* in the worst 5% of
-  2033 outcomes, the average loss exceeds 30%. Size the reserve from this, not from the median.
-- **CONF-01 · MONITOR · Data Quality** — a holding with under two years of history. Its
-  statistics are a guess wearing precision.
+**1. Start with the obligation, not the portfolio.** You put in **$450,000** across 2027-2028. The
+plan promises **10 payments of $50,000 from 2033 to 2042**, which discounted at 2.9% is a required
+reserve of **$441,127** standing still in 2033. Everything else in the report is measured against
+that one number.
 
-Read flags in severity order and stop when the actions stop making sense — that is usually
-the point where you need a different assumption, not a different portfolio.
+**2. Then look at the bad end of the range, not the middle.** Monte Carlo's median 2033 value is
+**$639,725** — comfortable. The 5th percentile is **$472,144** and the 95th is **$876,201**. The
+median is what usually happens; the 5th percentile is what you have to survive. A plan sized on
+$639,725 is a plan with no plan for the unlucky 5%.
+
+**3. The decision metric is funding, not growth.** "Terminal value above what I put in" passes in
+**97.2%** of Monte Carlo runs and **99.0%** of bootstrap runs — nearly meaningless, because the
+obligation is bigger than "not losing money". The metric that matters is *all ten payments funded*:
+**2,392 of 4,000 Monte Carlo paths (59.8%)** and **1,689 of 4,000 bootstrap paths (42.2%)**. The
+planning standard is 90%. Plan against **42.2%**, the lower of the two, because the bootstrap only
+uses sequences that actually happened.
+
+**4. Concentration, shown as arithmetic.** Eight holdings, and the HHI is
+
+```
+0.063² + 0.210² + 0.044² + 0.030² + 0.190² + 0.123² + 0.300² + 0.040² = 0.1937
+```
+
+A perfectly even eight-holding portfolio would be 0.1250. Normalised, this portfolio is **5.16
+independent bets**, not eight. That single number explains why the funding probabilities are lower
+than the holding count suggests.
+
+**5. Two holdings can be one bet.** IEF and SHY have a **0.78** correlation and carry **31.3%**
+between them. They are labelled as bonds in two funds; in a rate shock they are one position. The
+group cap is 40%, so this is legal and still worth knowing.
+
+**6. Now read the flags, in severity order, with their arithmetic:**
+
+| Flag | Measured | Against | What it actually says |
+|---|---|---|---|
+| **POS-01** HIGH | VOO 0.3000 | cap 0.2500 | One name carries 30% of the plan. Policy breach, not a market view. |
+| **RESV-03** HIGH | 0.4223 | standard 0.9000 | **The most important finding in the report.** The obligation is likely not met. |
+| **MODEL-04** HIGH | 17.6pp spread | — | Monte Carlo and bootstrap disagree on funding. Report a range, not a point. |
+| **CORR-02** WARNING | IEF-SHY 0.7847 | threshold 0.70 | Two "different" bond funds move together. |
+| **REBAL-06** WARNING | VOO 0.3000 | band 0.2500 | The same breach seen from the rebalancing side: a trade is triggered. |
+| **THESIS-05** MONITOR | 1 holding | 0 expected | A position exists that the model cannot explain. |
+
+Read flags in severity order and stop when the actions stop making sense — that is usually the
+point where you need a different assumption, not a different portfolio.
+
+**7. Change one assumption and re-read.** Run the same file with `--variant glide_end_equity=0.35`
+(or type it in the dashboard's *Compare against a variant* box). The median terminal value moves,
+but the funding probability moves **more**, and a drawdown flag disappears. That is the lesson:
+the glide-path end target is a funding decision disguised as an allocation setting.
 
 ---
 

@@ -155,3 +155,51 @@ def test_committed_sample_output_opens_and_is_documented():
 
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "sample_output" in readme, "README does not point at the sample deliverables"
+
+
+def test_tutorial_numbers_match_the_committed_sample_output():
+    """The tutorial quotes real figures from the sample workbook. If the sample is regenerated
+    and the tutorial is not updated, this fails rather than leaving a plausible-looking lie."""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(DOCS / "sample_output" / "sample_output.xlsx", data_only=True)
+    tutorial = " ".join((DOCS / "TUTORIAL.md").read_text(encoding="utf-8").split())
+
+    def comparison_row(metric: str) -> list[float]:
+        ws = wb["Model Comparison"]
+        for r in ws.iter_rows(max_col=6, values_only=True):
+            if r and str(r[0]).strip() == metric:
+                return [float(v) for v in r[1:4] if isinstance(v, (int, float))]
+        raise AssertionError(f"sample workbook has no {metric!r} row")
+
+    money = lambda v: f"${v:,.0f}"
+    percent = lambda v: f"{v * 100:.1f}%"
+
+    med, p5, p95 = comparison_row("Median terminal value (2033)")[0], \
+        comparison_row("5th percentile")[0], comparison_row("95th percentile")[0]
+    funded = comparison_row("Probability reserve fully funded")
+
+    expected = [
+        money(med), money(p5), money(p95),
+        percent(funded[0]), percent(funded[2]),
+    ]
+
+    ws = wb["Risk"]
+    hhi = None
+    for r in ws.iter_rows(max_col=4, values_only=True):
+        if r and str(r[0]).strip() == "HHI raw":
+            hhi = float(r[1])
+    assert hhi is not None, "sample workbook has no HHI raw row"
+    expected.append(f"{hhi:.4f}")
+
+    for flag_id in ("POS-01", "RESV-03"):
+        row = next((r for r in wb["Rule Flags"].iter_rows(max_col=8, values_only=True)
+                    if r and str(r[0]).strip() == flag_id), None)
+        assert row is not None, f"sample workbook has no {flag_id} flag"
+        # the tutorial quotes each value rounded to 4 decimals, exactly as the report prints it
+        expected += [f"{float(row[5]):.4f}", f"{float(row[6]):.4f}"]
+
+    missing = [text for text in expected if text not in tutorial]
+    assert not missing, (
+        f"TUTORIAL.md quotes numbers that are not in the committed sample output: {missing}. "
+        "Regenerate the tutorial section from the sample, or regenerate the sample.")
