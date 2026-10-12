@@ -113,3 +113,20 @@ def test_tutorial_documents_the_interpretability_features():
     text = " ".join((DOCS / "TUTORIAL.md").read_text(encoding="utf-8").split())
     for must in ("What this means for your portfolio", "Chart captions", "Correlated clusters"):
         assert must in text, f"TUTORIAL.md does not document {must}"
+
+
+def test_definitions_page_is_not_stale():
+    """CI checks this too; catching it here means a stale page fails the suite, not just the build."""
+    sys.path.insert(0, str(PKG_ROOT / "scripts"))
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "build_definitions_doc", PKG_ROOT / "scripts" / "build_definitions_doc.py")
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+
+    expected = gen.build_doc()
+    actual = (DOCS / "METRIC_DEFINITIONS.md").read_text(encoding="utf-8")
+    assert actual == expected, (
+        "docs/METRIC_DEFINITIONS.md is out of date - run "
+        "`python portfolio_model/scripts/build_definitions_doc.py`")
