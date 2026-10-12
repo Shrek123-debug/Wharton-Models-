@@ -136,6 +136,7 @@ const TABS = [
   { id: "method", label: "Methodology", render: renderMethod },
   { id: "guide", label: "Tutorial", render: renderGuide },
   { id: "defs", label: "Definitions", render: renderDefs },
+  { id: "walkthrough", label: "Guided Walkthrough", render: renderWalkthrough },
 ];
 
 /* ---------------------------------------------------------------- interpretation */
@@ -682,6 +683,30 @@ document.addEventListener("click", ev => {
   ev.stopPropagation();
   openDefinition(btn.dataset.def, btn);
 });
+
+function renderWalkthrough() {
+  const ex = state.payload.worked_examples || [];
+  if (!ex.length) {
+    return `<div class="card"><div class="sub-head">Guided Walkthrough</div>
+      <p class="narrative">No worked examples were produced for this run.</p></div>`;
+  }
+  const cards = ex.map(e => `<div class="card we-card">
+    <div class="we-head"><span class="we-title">${esc(e.metric)}</span>
+      ${infoBtn(e.key)}<span class="we-result">${esc(String(e.result))}</span></div>
+    <div class="we-calc"><b>Calculation with your numbers:</b> <span class="mono">${esc(e.your_numbers)}</span></div>
+    <div class="we-formula"><b>Formula:</b> ${esc(e.formula)}</div>
+    <div class="we-mean"><b>What it means for this portfolio:</b> ${esc(e.what_it_means)}</div>
+    <div class="we-trap"><b>The trap:</b> ${esc(e.the_trap)}</div>
+    <div class="we-do"><b>What to do:</b> ${esc(e.what_to_do)}</div>
+  </div>`).join("");
+  return `<div class="card"><div class="sub-head">Guided Walkthrough</div>
+    <p class="narrative">Every headline metric below is recalculated using <b>this portfolio's own numbers</b>,
+    so you can see the arithmetic that produced the figure rather than trusting it. Nothing on this page is
+    generated commentary: it is the same values the engines returned, written out.</p>
+    <p class="mini-note">${ex.length} worked examples · ${esc((state.payload.meta.data_sources || "n/a"))} prices ·
+    seed ${esc(state.payload.meta.seed)} · ${Number(state.payload.meta.n_sims).toLocaleString()} simulations</p>
+  </div>${cards}`;
+}
 
 function renderDefs() {
   const entries = Object.entries(glossary.entries);

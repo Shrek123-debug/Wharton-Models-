@@ -167,7 +167,13 @@ something, it says what and how to fix it **before** you press Run.
   option, not a crash mid-simulation.
 - **Tabs** — Overview, Holdings & Sectors, History, Monte Carlo, Markov Regime, Historical
   Bootstrap, Model Comparison, Sensitivity, Stress Tests, Risk & Concentration, Rebalance &
-  Glide, Flags & Actions, What-If Compare, Data Quality, Methodology, Tutorial, Definitions.
+  Glide, Flags & Actions, What-If Compare, Data Quality, Methodology, Tutorial, Definitions,
+  Guided Walkthrough.
+- **Guided Walkthrough** — every headline metric recalculated with *your* portfolio's numbers:
+  the HHI written out as the sum of your squared weights, the required reserve written out as
+  the discounting that produced it, success probabilities written as "962 of 1,000 paths", the
+  clusters with their combined weight, and each high-severity flag as "measured 0.3000 against
+  threshold 0.2500". Deterministic — these are the engine's own values, shown as arithmetic.
 - **What-If Compare** — fill in *Compare against a variant* in Run options (for example
   `glide_end_equity=0.35`) and the same portfolio runs twice. The tab shows every
   decision-relevant metric side by side with the change, the percentage change, whether it

@@ -1034,6 +1034,7 @@ SHEET_GUIDE: list[tuple[str, str]] = [
     ("Scorecard", "Each configured test against its threshold, with the pass/fail result."),
     ("Stop-Loss Backtests", "Historical stop backtests. Risk discipline evidence, not trading advice."),
     ("Definitions", "Every metric in this workbook: what it is, how to read it, what to do, and the trap."),
+    ("Worked Examples", "The arithmetic behind each headline metric, recalculated with this portfolio's own numbers."),
 ]
 
 SHEET_QUESTIONS: list[tuple[str, str]] = [

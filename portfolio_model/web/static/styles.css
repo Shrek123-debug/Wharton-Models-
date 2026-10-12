@@ -162,6 +162,17 @@ tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
 .empty-state .btn { width: auto; display: inline-block; }
 .hidden { display: none !important; }
 
+/* guided walkthrough */
+.we-card { border-left: 3px solid var(--accent); }
+.we-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.we-title { font-weight: 700; font-size: 13.5px; }
+.we-result { margin-left: auto; background: var(--panel, #f4f6f8); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
+.we-calc, .we-formula, .we-mean, .we-trap, .we-do { font-size: 12.5px; margin: 5px 0; }
+.we-calc .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.we-trap { color: var(--muted); font-style: italic; }
+.we-do { color: var(--text); }
+
 /* what-if comparison */
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .move-better { color: #1a7f37; font-weight: 600; }

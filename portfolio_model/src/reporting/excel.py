@@ -252,6 +252,23 @@ def build_workbook(path: Path, results: dict) -> Path:
             c.alignment = Alignment(wrap_text=True, vertical="top")
     _autosize(ws, max_w=58)
 
+    # ---- Sheet 21: Worked Examples (every metric recalculated with this portfolio's numbers)
+    examples = results.get("worked_examples") or []
+    ws = wb.create_sheet("Worked Examples")
+    if examples:
+        end = _write_df(ws, pd.DataFrame(examples), 1,
+                        "Worked examples - the arithmetic behind each headline metric, using your own numbers")
+        ws.cell(row=end, column=1,
+                value="Deterministic: every line here is recomputed from this run's results. "
+                      "No model and no generated commentary.").font = Font(italic=True, size=9)
+        for row in ws.iter_rows(min_row=4, max_col=8):
+            for c in row:
+                c.alignment = Alignment(wrap_text=True, vertical="top")
+        _autosize(ws, max_w=60)
+    else:
+        ws.cell(row=1, column=1, value="No worked examples were produced for this run.")
+    _autosize(ws)
+
     # ---- Sheet 0: Read Me (rendered from src/metric_glossary.py, placed first)
     from ..metric_glossary import SEVERITY_LEGEND, SHEET_GUIDE, SHEET_QUESTIONS
 

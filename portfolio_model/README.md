@@ -176,7 +176,7 @@ pip install -r requirements-dev.txt        # includes pytest and ruff
 cd portfolio_model && python -m pytest tests -q
 ```
 
-150 tests: returns math, ingestion/validation robustness, covariance and portfolio stats,
+159 tests: returns math, ingestion/validation robustness, covariance and portfolio stats,
 VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
 bootstrap, sensitivity interpretation, the rule-flag engine, the offline data layer, override
 validation, glossary completeness, documentation freshness, example-workbook ingestion,

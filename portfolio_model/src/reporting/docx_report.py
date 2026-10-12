@@ -259,6 +259,20 @@ def build_report(path: Path, results: dict) -> Path:
         for e in GLOSSARY.values()
     ]), max_rows=len(GLOSSARY))
 
+    # Appendix B: the same metrics recalculated with this portfolio's numbers
+    examples = results.get("worked_examples") or []
+    if examples:
+        doc.add_page_break()
+        _h(doc, "Appendix B. Worked Examples From This Portfolio")
+        _p(doc, "Each headline metric below is recomputed from this run's own results. Nothing here is "
+                "generated commentary: the numbers are the numbers the engines produced.", italic=True)
+        for e in examples:
+            _p(doc, e["metric"], bold=True)
+            _p(doc, f"Calculation: {e['your_numbers']} = {e['result']}")
+            _p(doc, f"What it means for this portfolio: {e['what_it_means']}")
+            _p(doc, f"The trap: {e['the_trap']}", italic=True)
+            _p(doc, f"What to do: {e['what_to_do']}")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(path)
     return path

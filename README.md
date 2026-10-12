@@ -145,6 +145,7 @@ option instead of crashing mid-simulation.
 | Methodology | Seed / sims / versions (reproducibility manifest), data provenance, methodology notes |
 | **Tutorial** | `docs/TUTORIAL.md` rendered in the app |
 | **Definitions** | All 76 metric definitions with search |
+| **Guided Walkthrough** | Every headline metric recalculated with your portfolio's own numbers |
 
 Interpretability features:
 
@@ -305,7 +306,7 @@ cd portfolio_model && python -m pytest tests -q
 `requirements.txt` deliberately excludes test tooling so a plain install stays minimal;
 install `requirements-dev.txt` before running the tests or `ruff`.
 
-150 tests cover returns math, ingestion/validation robustness, covariance and portfolio
+159 tests cover returns math, ingestion/validation robustness, covariance and portfolio
 stats, VaR/CVaR, HHI, correlation clusters, Markov transitions, Monte Carlo path mechanics,
 bootstrap, sensitivity interpretation, the rule-flag engine, config validation (missing keys,
 wrong types, out-of-range values, cross-key rules, the real CLI exit code), run comparison
@@ -347,3 +348,9 @@ instead of passing on a laptop.
 | "no writable cache directory" | Caches are redirected to `portfolio_model/.cache/`; check permissions there |
 | Results differ from a previous run | Compare `run_manifest.yaml`: seed, sims, options, data vintage and provenance |
 | Web UI: "An analysis is already running" | One run at a time by design; wait for it to finish |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

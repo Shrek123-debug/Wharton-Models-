@@ -280,3 +280,79 @@ def test_workbook_rule_flags_sheet_carries_the_metric_definition():
     first_data = next(ws.iter_rows(min_row=header_row[0].row + 1, max_col=len(headers)))
     values = dict(zip(headers, [c.value for c in first_data]))
     assert values.get("metric_definition"), "the definition column is empty on the first flag"
+
+
+WORKED_FIELDS = ("key", "metric", "unit", "formula", "your_numbers", "result",
+                 "what_it_means", "the_trap", "what_to_do")
+
+
+def _worked_examples_for_example_portfolio():
+    import tempfile
+
+    from src.interpret import worked_examples
+    from src.pipeline import run
+
+    res = run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_full.xlsx"),
+              out_dir=str(Path(tempfile.mkdtemp())),
+              overrides={"sims": 500, "sensitivity_sims": 200, "offline": "always"},
+              render_charts=False)
+    return res, worked_examples(res)
+
+
+def test_worked_examples_cover_the_metrics_that_drive_the_decision():
+    _, examples = _worked_examples_for_example_portfolio()
+    keys = {e["key"] for e in examples}
+    required = {"weights_source", "hhi", "effective_n", "top3_top5_top10", "correlation_cluster",
+                "required_reserve", "terminal_percentiles", "prob_terminal_gt_start",
+                "prob_all_payments_funded", "cvar", "max_drawdown_growth", "glide_path",
+                "rebalance_band", "engine_disagreement", "data_provenance"}
+    missing = required - keys
+    assert not missing, f"no worked example produced for: {missing}"
+
+
+def test_every_worked_example_is_complete_and_uses_a_defined_metric():
+    _, examples = _worked_examples_for_example_portfolio()
+    assert examples, "no worked examples produced"
+    for e in examples:
+        assert e["key"] in GLOSSARY, f"worked example for undefined metric {e['key']}"
+        for field in WORKED_FIELDS:
+            assert str(e.get(field, "")).strip(), f"{e['key']} is missing {field}"
+        assert len(e["your_numbers"]) > 15, f"{e['key']} shows no arithmetic"
+
+
+def test_worked_examples_quote_this_portfolios_actual_holdings():
+    res, examples = _worked_examples_for_example_portfolio()
+    tickers = list(res["holdings"]["ticker"])
+    text = " ".join(e["your_numbers"] for e in examples)
+    quoted = [t for t in tickers if t in text]
+    assert len(quoted) >= 3, f"worked examples do not quote the real holdings: {text[:200]}"
+    # the HHI line must be the sum of the actual squared weights
+    hhi = next(e for e in examples if e["key"] == "hhi")
+    for _, r in res["holdings"].iterrows():
+        assert f"{float(r['weight']):.3f}²" in hhi["your_numbers"], (
+            f"HHI worked example omits {r['ticker']} at {r['weight']:.3f}: {hhi['your_numbers']}")
+
+
+def test_worked_examples_reach_the_workbook_and_the_report():
+    import tempfile
+
+    from openpyxl import load_workbook
+
+    from src.pipeline import run
+
+    out = Path(tempfile.mkdtemp())
+    run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_full.xlsx"),
+        out_dir=str(out), overrides={"sims": 400, "sensitivity_sims": 200, "offline": "always"},
+        render_charts=False)
+
+    ws = load_workbook(out / "spreadsheet" / "portfolio_analysis.xlsx")["Worked Examples"]
+    body = " ".join(str(c.value) for row in ws.iter_rows(max_col=8) for c in row if c.value)
+    assert "Calculation" in body or "your_numbers" in body, "Worked Examples sheet is empty"
+    assert "²" in body, "the HHI arithmetic is not shown in the workbook"
+
+    from docx import Document
+    doc = Document(out / "report" / "portfolio_analysis_report.docx")
+    paras = [p.text for p in doc.paragraphs]
+    assert any(t.startswith("Appendix B") for t in paras), "report has no worked-examples appendix"
+    i = next(n for n, t in enumerate(paras) if t.startswith("Appendix B"))
+    assert any("Calculation:" in t for t in paras[i:])
