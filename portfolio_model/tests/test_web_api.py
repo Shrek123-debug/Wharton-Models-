@@ -241,3 +241,40 @@ def test_run_history_tab_is_rendered_from_saved_runs():
     js = (PKG_ROOT / "web" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'id: "history"' in js and "renderRunHistory" in js and "wireRunHistory" in js
     assert "/api/runs" in js
+
+
+def test_run_history_is_bounded_and_prunes_its_payload_files(tmp_path, monkeypatch):
+    """50 runs is the cap; the payload files of runs that age out must go with them, and the
+    index itself must survive its own pruning loop."""
+    from web import app as webapp
+
+    monkeypatch.setattr(webapp, "RUNS_DIR", tmp_path)
+    monkeypatch.setattr(webapp, "RUNS_INDEX", tmp_path / "index.json")
+
+    for i in range(webapp.MAX_RUNS + 12):
+        run_id = f"run{i:03d}"
+        (tmp_path / f"{run_id}.json").write_text('{"tables": [], "rule_flags": []}', encoding="utf-8")
+        webapp._save_runs(webapp._load_runs() + [{"id": run_id, "finished_utc": f"2026-01-01T00:00:0{i%10}Z",
+                                                  "headline": {}}])
+
+    runs = webapp._load_runs()
+    assert len(runs) == webapp.MAX_RUNS, f"history grew to {len(runs)} instead of stopping at {webapp.MAX_RUNS}"
+    assert runs[-1]["id"] == f"run{webapp.MAX_RUNS + 11:03d}", "oldest runs should be dropped, not newest"
+    assert (tmp_path / "index.json").exists(), "the pruning loop deleted the index itself"
+
+    kept = {r["id"] for r in runs}
+    orphans = [p.stem for p in tmp_path.glob("*.json") if p.stem != "index" and p.stem not in kept]
+    assert not orphans, f"payload files left behind for runs no longer in the index: {orphans}"
+
+
+def test_corrupt_run_index_does_not_break_the_dashboard(tmp_path, monkeypatch):
+    from web import app as webapp
+
+    monkeypatch.setattr(webapp, "RUNS_DIR", tmp_path)
+    monkeypatch.setattr(webapp, "RUNS_INDEX", tmp_path / "index.json")
+    (tmp_path / "index.json").write_text("{ this is not valid json", encoding="utf-8")
+
+    assert webapp._load_runs() == []
+    resp = client.get("/api/runs")
+    assert resp.status_code == 200
+    assert resp.json()["runs"] == []
