@@ -159,6 +159,11 @@ Interpretability features:
   to do about it, and the trap that makes people misread it;
 - a **correlated-clusters table** showing holdings that are really one bet, with their combined
   weight;
+- **definitions bound to the current run** — after a run, each definition shows "In this run:
+  0.1937" next to the abstract meaning, so a definition is never just a dictionary entry;
+- a **Guided Walkthrough tab** recalculating every headline metric with your portfolio's own
+  numbers (HHI as the sum of your squared weights, the required reserve as the discounting that
+  produced it, success as "962 of 1,000 paths");
 - an **environment pre-flight panel** showing blocking problems and warnings, with fixes,
   before you press Run — including config problems named key by key;
 - a **Market data** option (auto / offline only / live required) in Run options.
