@@ -640,8 +640,12 @@ function infoBtn(label) {
 function definitionHTML(key) {
   const e = glossary.entries[key];
   if (!e) return "";
+  const runValue = ((state.payload && state.payload.metric_values) || {})[key];
+  const valueRow = runValue
+    ? `<div class="def-value"><b>In this run:</b> ${esc(String(runValue))}</div>` : "";
   return `<div class="def-title">${esc(e.label)}</div>
     <div class="def-unit">${esc(key)} · ${esc(e.unit)}</div>
+    ${valueRow}
     <dl class="def-list">
       <dt>What it is</dt><dd>${esc(e.formula)}</dd>
       <dt>What it measures</dt><dd>${esc(e.meaning)}</dd>
@@ -710,9 +714,11 @@ function renderWalkthrough() {
 
 function renderDefs() {
   const entries = Object.entries(glossary.entries);
+  const values = (state.payload && state.payload.metric_values) || {};
   const cards = entries.map(([k, e]) => `
     <div class="def-card" data-search="${esc((k + " " + e.label + " " + e.meaning).toLowerCase())}">
       <div class="def-title">${esc(e.label)}<span class="def-key">${esc(k)}</span></div>
+      ${values[k] ? `<div class="def-value"><b>In this run:</b> ${esc(String(values[k]))}</div>` : ""}
       <dl class="def-list">
         <dt>What it is</dt><dd>${esc(e.formula)}</dd>
         <dt>What it measures</dt><dd>${esc(e.meaning)}</dd>

@@ -376,6 +376,7 @@ def build_payload(results: dict) -> dict:
         "charts": charts,
         "chart_notes": CHART_GUIDE,
         "worked_examples": results.get("worked_examples", []),
+        "metric_values": results.get("metric_values", {}),
         "tables": tables,
         "texts": {k: results[k] for k in
                   ("overview_text", "historical_text", "risk_text", "correlation_text", "concentration_text",

@@ -356,3 +356,34 @@ def test_worked_examples_reach_the_workbook_and_the_report():
     assert any(t.startswith("Appendix B") for t in paras), "report has no worked-examples appendix"
     i = next(n for n, t in enumerate(paras) if t.startswith("Appendix B"))
     assert any("Calculation:" in t for t in paras[i:])
+
+
+def test_metric_values_binds_definitions_to_this_runs_numbers():
+    import tempfile
+
+    from src.interpret import metric_values
+    from src.pipeline import run
+
+    res = run(input_path=str(PKG_ROOT / "data" / "input" / "example_portfolio_full.xlsx"),
+              out_dir=str(Path(tempfile.mkdtemp())),
+              overrides={"sims": 400, "sensitivity_sims": 200, "offline": "always"},
+              render_charts=False)
+    values = metric_values(res)
+    assert len(values) >= 20, f"only {len(values)} metrics bound to the run"
+    undefined = [k for k in values if k not in GLOSSARY]
+    assert not undefined, f"metric values reference undefined glossary keys: {undefined}"
+
+    assert values["required_reserve"].startswith("$")
+    assert values["prob_all_payments_funded"].count("%") == 2, "both engines should be shown"
+    assert "·" in values["terminal_percentiles"]
+    # the bound value must match the run, not be a generic string
+    assert values["hhi"] == f"{res['conc']['hhi']['raw']:.4f}"
+    assert values["effective_n"] == f"{res['conc']['hhi']['effective_n']:.2f}"
+
+    payload_values = build_payload_for(res)["metric_values"]
+    assert payload_values == values
+
+
+def build_payload_for(res):
+    from web.serialize import build_payload
+    return build_payload(res)

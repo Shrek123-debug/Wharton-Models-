@@ -317,3 +317,72 @@ def worked_examples_text(results: dict) -> list[str]:
     for e in worked_examples(results):
         lines.append(f"{e['metric']}: {e['your_numbers']} = {e['result']}. {e['what_it_means']}")
     return lines
+
+
+def metric_values(results: dict) -> dict[str, str]:
+    """Glossary key -> this run's value, formatted.
+
+    The Definitions tab and the *i* popovers use this so a definition is never just an
+    abstraction: it shows the number this portfolio actually produced, or says plainly that the
+    metric did not apply to this run.
+    """
+    cfg = results["cfg"]
+    mc, bs, mk = results["mc_sum"], results["bs_sum"], results["mk_sum"]
+    conc = results["conc"]
+    ctx = results["ctx"]
+    total_contrib = sum(c["amount"] for c in cfg["cashflows"]["contributions"])
+    values: dict[str, str] = {}
+
+    def put(key: str, text: str) -> None:
+        if key in GLOSSARY:
+            values[key] = text
+
+    put("weights_source", results["meta"]["weights_source"])
+    put("contributions", _money(total_contrib))
+    put("required_reserve", _money(ctx.required_reserve))
+    put("hhi", _num(conc["hhi"]["raw"]))
+    put("effective_n", _num(conc["hhi"]["effective_n"], 2))
+    put("top3_top5_top10",
+        f"top 3 {_pct(conc['top3'])} · top 5 {_pct(conc['top5'])} · top 10 {_pct(conc['top10'])}")
+    put("median_terminal", _money(mc["median_terminal"]))
+    put("terminal_2033", _money(mc["median_terminal"]))
+    put("terminal_percentiles",
+        " · ".join(f"{k} {_money(v)}" for k, v in mc["terminal_percentiles"].items()
+                   if k in ("p5", "p50", "p95")))
+    put("prob_terminal_gt_start", _pct(mc["prob_terminal_gt_start"]))
+    put("prob_all_payments_funded",
+        f"Monte Carlo {_pct(mc['prob_all_payments_funded'])} · "
+        f"bootstrap {_pct(bs['prob_all_payments_funded'])}")
+    put("prob_facility_negative", _pct(mc["prob_facility_negative"]))
+    put("prob_capital_depletion", _pct(mc["prob_capital_depletion"]))
+    put("var", f"bootstrap terminal {_pct(bs['mc_var_95'])}")
+    put("cvar", f"bootstrap terminal {_pct(bs['mc_cvar_95'])}")
+    put("max_drawdown_growth", f"median {_pct(float(results['dd_dist']['median']))}")
+    put("max_drawdown", _pct(results["port"].stats["max_drawdown"]))
+    put("sharpe", _num(float(results["port"].stats["sharpe"]), 2))
+    put("sortino", _num(float(results["port"].stats["sortino"]), 2))
+    put("downside_deviation", _pct(float(results["port"].stats["downside_deviation"])))
+    put("annual_volatility", _pct(float(results["port"].stats["annual_volatility"])))
+    put("cagr_historical", _pct(float(results["port"].stats["cagr_historical"])))
+    put("mean_annual_return", _pct(float(results["port"].stats["mean_annual_return"])))
+    put("bear_ever_prob", _pct(float(mk.get("bear_ever_prob", 0.0))))
+    put("bull_by_end_prob", _pct(float(mk.get("bull_by_end_prob", 0.0))))
+    put("facility_contribution", _money(mc["median_facility"]))
+    put("risk_free_rate", _pct(cfg["risk"]["risk_free_rate"]))
+    put("inflation_base", _pct(cfg["risk"]["inflation_base"]))
+    put("rebalance_band", f"±{_pct(cfg['rebalancing']['band'])}")
+    put("turnover", _num(float(mc["mean_turnover"]), 3))
+    frag = (results.get("sens_interp") or {}).get("fragile_vol_threshold")
+    put("fragile_vol_threshold", _num(float(frag), 2) if frag is not None else "not computed")
+    put("confidence", ", ".join(f"{t} {c}" for t, c in sorted((results.get("confidence") or {}).items())
+                                if c == "Low") or "no low-confidence series")
+    put("data_provenance", ", ".join(f"{k} ({v})" for k, v in
+                                     (results["data_provenance"]["source"].value_counts().to_dict()).items())
+        if len(results.get("data_provenance", [])) else "n/a")
+    put("rule_flag", f"{len(results.get('rule_flags', []))} triggered "
+                     f"({sum(1 for f in results.get('rule_flags', []) if f['severity'] in ('CRITICAL','HIGH'))} "
+                     f"high or critical)")
+    clusters = results.get("cluster_sheet")
+    put("correlation_cluster",
+        f"{len(clusters)} cluster(s)" if clusters is not None else "n/a")
+    return values
