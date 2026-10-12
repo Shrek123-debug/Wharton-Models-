@@ -145,7 +145,8 @@ option instead of crashing mid-simulation.
 | Methodology | Seed / sims / versions (reproducibility manifest), data provenance, methodology notes |
 | **Tutorial** | `docs/TUTORIAL.md` rendered in the app |
 | **Definitions** | All 76 metric definitions with search |
-| **Guided Walkthrough** | Every headline metric recalculated with your portfolio's own numbers |
+| **Guided Walkthrough** | Every headline metric recalculated with your portfolio's own numbers, plus a position-by-position guide |
+| **Run History** | Every completed run on this machine with its headline numbers; pick any two and compare them |
 
 Interpretability features:
 
