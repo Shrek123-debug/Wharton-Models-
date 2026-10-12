@@ -83,10 +83,20 @@ def flag_deltas(results_a: dict, results_b: dict) -> list[dict]:
 
 def compare_runs(results_a: dict, results_b: dict, label_a: str = "A", label_b: str = "B") -> pd.DataFrame:
     """Side-by-side metrics with the absolute and relative change."""
-    ma, mb = headline_metrics(results_a), headline_metrics(results_b)
+    return compare_metric_maps(headline_metrics(results_a), headline_metrics(results_b),
+                               label_a, label_b)
+
+
+def compare_metric_maps(metrics_a: dict[str, float], metrics_b: dict[str, float],
+                        label_a: str = "A", label_b: str = "B") -> pd.DataFrame:
+    """Diff two headline-metric maps.
+
+    Kept separate from compare_runs so a saved run summary - which is just a metric map - can be
+    compared with the same direction semantics as a live pair of runs.
+    """
     rows = []
-    for metric in ma:
-        va, vb = ma[metric], mb.get(metric)
+    for metric in metrics_a:
+        va, vb = metrics_a[metric], metrics_b.get(metric)
         if vb is None:
             continue
         delta = vb - va

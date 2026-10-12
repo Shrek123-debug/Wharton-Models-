@@ -14,6 +14,11 @@ portfolio_model/data/raw/
 portfolio_model/data/processed/
 portfolio_model/data/input/uploads/
 
+# Generated artifacts. Every file under outputs/ is reproducible from an input workbook plus the
+# config, so committing them only makes the repo churn on each run. The web run history under
+# outputs/web/runs/ also contains the holdings of whoever pressed Run - that must never be pushed.
+portfolio_model/outputs/
+
 # OS
 .DS_Store
 

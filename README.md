@@ -235,17 +235,26 @@ reserve phase (success = all ten payments funded).
 
 ## 8. Outputs
 
-- **Excel** — 21 sheets: **Read Me** (what each sheet is for, which question to bring where,
-  severity legend), Executive Summary, Holdings, Sector Allocation, Correlation Matrix,
+- **Excel** — 22 sheets: **Read Me** (what each sheet is for, which question to bring where,
+  severity legend), Executive Summary, Holdings (with a role and a "what to watch" line per
+  position), Sector Allocation, Correlation Matrix,
   Historical Performance, Monte Carlo, Markov Model, Historical Bootstrap, Model Comparison,
   Sensitivity, Risk, Stress Tests, Glide Path, Rebalancing, Rule Flags, Investment Theses,
-  Data Quality, Scorecard, Stop-Loss Backtests, **Definitions**.
+  Data Quality, Scorecard, Stop-Loss Backtests, **Definitions**, **Worked Examples**.
 - **DOCX** — written report: a "How to read this report" guide, 23 numbered sections, rule-based
-  flags, conclusions, a monitoring checklist, and Appendix A defining every metric.
+  flags, conclusions, a monitoring checklist, Appendix A defining every metric, Appendix B with
+  the worked arithmetic from your own portfolio, and Appendix C explaining each position.
 - **Figures** — 16 PNG charts under `outputs/figures/`.
 - **Manifest** — `outputs/report/run_manifest.yaml` (config, seed, versions, data provenance).
 
 CLI runs write to `portfolio_model/outputs/`; web runs write to `portfolio_model/outputs/web/`.
+That whole tree is git-ignored: it is reproducible from an input workbook, and web run history
+contains the holdings of whoever pressed Run.
+
+**Want to see the deliverables before running anything?** A generated pair is committed:
+[docs/sample_output/sample_output.xlsx](docs/sample_output/sample_output.xlsx) and
+[docs/sample_output/sample_output_report.docx](docs/sample_output/sample_output_report.docx),
+produced from `portfolio_model/data/input/example_portfolio_full.xlsx`.
 
 ---
 

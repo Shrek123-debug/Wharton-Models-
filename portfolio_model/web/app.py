@@ -6,6 +6,7 @@ No LLM / AI API / cloud inference is used anywhere in this application.
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 import threading
@@ -21,17 +22,21 @@ WEB_DIR = Path(__file__).resolve().parent
 PACKAGE_ROOT = WEB_DIR.parent
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from src.compare import compare_metric_maps, compare_runs, flag_deltas, headline_metrics  # noqa: E402
 from src.config import ConfigError, load_config, resolve  # noqa: E402
 from src.metric_glossary import ALIASES, GLOSSARY  # noqa: E402
 from src.pipeline import PipelineError, run  # noqa: E402
 from src.selfcheck import collect_checks  # noqa: E402
 
-from .serialize import build_payload  # noqa: E402
+from .serialize import build_payload, df_records  # noqa: E402
 
 UPLOAD_DIR = PACKAGE_ROOT / "data" / "input" / "uploads"
 OUT_DIR = PACKAGE_ROOT / "outputs" / "web"
+RUNS_DIR = OUT_DIR / "runs"
+RUNS_INDEX = RUNS_DIR / "index.json"
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_JOBS = 8
+MAX_RUNS = 50
 
 app = FastAPI(title="Portfolio Analysis — Local Web UI")
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
@@ -62,6 +67,57 @@ def _running_job() -> dict | None:
     return None
 
 
+# ---- saved runs ---------------------------------------------------------------------------
+# A dashboard session is disposable; the numbers you made a decision on should not be. Every
+# completed run is written to disk as a headline summary plus its full payload, so history
+# survives a restart and two saved runs can be compared with the same semantics as a what-if.
+
+def _load_runs() -> list[dict]:
+    if not RUNS_INDEX.exists():
+        return []
+    try:
+        data = json.loads(RUNS_INDEX.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _save_runs(runs: list[dict]) -> None:
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    runs = runs[-MAX_RUNS:]
+    RUNS_INDEX.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+    # drop payload files for runs that have aged out of the index
+    keep = {r["id"] for r in runs}
+    for path in RUNS_DIR.glob("*.json"):
+        if path.name == RUNS_INDEX.name or path.stem in keep:
+            continue
+        path.unlink(missing_ok=True)
+
+
+def _record_run(job: dict, input_path: Path, overrides: dict, variant: dict | None,
+                results: dict) -> None:
+    headline = {k: float(v) for k, v in headline_metrics(results).items()
+                if v is not None and math.isfinite(float(v))}
+    summary = {
+        "id": job["id"],
+        "finished_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "input": Path(input_path).name,
+        "overrides": overrides or {},
+        "variant": variant or {},
+        "seed": results["meta"].get("seed"),
+        "sims": results["meta"].get("n_sims"),
+        "data_sources": results["meta"].get("data_sources"),
+        "data_as_of": results["meta"].get("data_as_of"),
+        # elapsed is only assigned in the caller's finally block, so measure it here
+        "elapsed_s": round(time.time() - job["started"], 1),
+        "headline": headline,
+    }
+    runs = [r for r in _load_runs() if r.get("id") != job["id"]] + [summary]
+    _save_runs(runs)
+    payload_path = RUNS_DIR / f"{job['id']}.json"
+    payload_path.write_text(json.dumps(job["payload"], default=str), encoding="utf-8")
+
+
 def _execute(job: dict, input_path: Path, overrides: dict, variant: dict | None = None) -> None:
     try:
         results = run(input_path=str(input_path), out_dir=str(OUT_DIR), overrides=overrides or None)
@@ -70,10 +126,6 @@ def _execute(job: dict, input_path: Path, overrides: dict, variant: dict | None 
         job["docx"] = str(OUT_DIR / "report" / "portfolio_analysis_report.docx")
         if variant:
             # Same portfolio, different assumption: the diff is what teaches the metrics.
-            from src.compare import compare_runs, flag_deltas
-
-            from .serialize import df_records
-
             alt = run(input_path=str(input_path), out_dir=str(OUT_DIR / "variant"),
                       overrides=variant, render_charts=False)
             job["payload"]["comparison"] = {
@@ -82,6 +134,7 @@ def _execute(job: dict, input_path: Path, overrides: dict, variant: dict | None 
                 "flags": df_records(flag_deltas(results, alt)),
             }
         job["status"] = "done"
+        _record_run(job, input_path, overrides, variant, results)
     except PipelineError as exc:
         job["status"] = "error"
         job["error"] = f"Run option problem: {exc}"
@@ -265,6 +318,39 @@ def latest() -> dict:
         raise HTTPException(status_code=404, detail="No completed analysis yet.")
     job = max(done, key=lambda j: j["started"])
     return {"id": job["id"], "payload": job["payload"]}
+
+
+@app.get("/api/runs")
+def saved_runs() -> dict:
+    """Every completed run this machine has produced, newest first."""
+    return {"runs": sorted(_load_runs(), key=lambda r: r.get("finished_utc", ""), reverse=True),
+            "limit": MAX_RUNS}
+
+
+@app.get("/api/runs/compare")
+def compare_saved_runs(a: str, b: str) -> dict:
+    """Compare two saved runs by their headline numbers."""
+    runs = {r["id"]: r for r in _load_runs()}
+    for run_id in (a, b):
+        if run_id not in runs:
+            raise HTTPException(status_code=404, detail=f"Unknown saved run: {run_id}")
+    ra, rb = runs[a], runs[b]
+    table = compare_metric_maps(ra["headline"], rb["headline"],
+                                label_a=f"A · {ra['finished_utc']}",
+                                label_b=f"B · {rb['finished_utc']}")
+    return {"a": ra, "b": rb, "table": df_records(table)}
+
+
+@app.get("/api/runs/{run_id}")
+def saved_run(run_id: str) -> dict:
+    """The full payload of a saved run, if its file is still on disk."""
+    path = RUNS_DIR / f"{run_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="That run's full results are no longer stored.")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"Saved run could not be read: {exc}") from exc
 
 
 @app.get("/api/export/{job_id}/{kind}")

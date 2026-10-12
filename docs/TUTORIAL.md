@@ -168,7 +168,11 @@ something, it says what and how to fix it **before** you press Run.
 - **Tabs** — Overview, Holdings & Sectors, History, Monte Carlo, Markov Regime, Historical
   Bootstrap, Model Comparison, Sensitivity, Stress Tests, Risk & Concentration, Rebalance &
   Glide, Flags & Actions, What-If Compare, Data Quality, Methodology, Tutorial, Definitions,
-  Guided Walkthrough.
+  Guided Walkthrough, Run History.
+- **Run History** — every completed run on this machine, newest first, with its headline numbers
+  and the options it used. Mark one row A and another B to compare two runs you already made,
+  using the same better/worse semantics as What-If Compare. Runs are stored under
+  `portfolio_model/outputs/web/runs/`, so the history survives a restart.
 - **Guided Walkthrough** — every headline metric recalculated with *your* portfolio's numbers:
   the HHI written out as the sum of your squared weights, the required reserve written out as
   the discounting that produced it, success probabilities written as "962 of 1,000 paths", the

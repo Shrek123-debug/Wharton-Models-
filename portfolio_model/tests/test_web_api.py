@@ -174,3 +174,70 @@ def test_what_if_tab_exists_in_the_ui():
     assert 'id: "whatif"' in js and "renderWhatIf" in js
     html = (PKG_ROOT / "web" / "static" / "index.html").read_text(encoding="utf-8")
     assert 'id="opt-variant"' in html
+
+
+def _wait_for_job(client, job_id, timeout=240):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = client.get(f"/api/job/{job_id}").json()
+        if status["status"] == "done":
+            return True
+        if status["status"] == "error":
+            pytest.fail(f"analysis job failed: {status.get('error')}")
+        time.sleep(1)
+    return False
+
+
+def test_completed_run_is_saved_and_listed_in_history():
+    resp = client.post("/api/analyze", data={"options": '{"sims":300,"sensitivity_sims":200,"offline":"always"}'})
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+    assert _wait_for_job(client, job_id), "run did not finish"
+
+    runs = client.get("/api/runs").json()["runs"]
+    assert runs, "no saved runs after a completed analysis"
+    mine = next((r for r in runs if r["id"] == job_id), None)
+    assert mine, "this run was not written to the history index"
+    assert mine["headline"], "saved run has no headline metrics"
+    assert any(k.startswith("Median terminal value") for k in mine["headline"])
+    assert mine["sims"] and mine["seed"] is not None
+    assert mine["finished_utc"].endswith("Z")
+
+    full = client.get(f"/api/runs/{job_id}")
+    assert full.status_code == 200
+    body = full.json()
+    assert "tables" in body and "rule_flags" in body, "saved payload is not the full result"
+    assert body["worked_examples"], "saved payload lost the worked examples"
+
+
+def test_two_saved_runs_can_be_compared():
+    ids = []
+    for variant in ("", "glide_end_equity=0.35"):
+        resp = client.post("/api/analyze",
+                           data={"options": '{"sims":300,"sensitivity_sims":200,"offline":"always"}',
+                                 "variant": variant})
+        assert resp.status_code == 200, resp.text
+        job_id = resp.json()["job_id"]
+        assert _wait_for_job(client, job_id), "run did not finish"
+        ids.append(job_id)
+
+    cmp_resp = client.get(f"/api/runs/compare?a={ids[0]}&b={ids[1]}")
+    assert cmp_resp.status_code == 200, cmp_resp.text
+    data = cmp_resp.json()
+    assert data["a"]["id"] == ids[0] and data["b"]["id"] == ids[1]
+    rows = data["table"]
+    assert len(rows) > 8
+    row = next(r for r in rows if r["metric"].startswith("Median terminal value"))
+    assert {"change", "change_%", "moves"} <= set(row)
+    assert row["moves"] in ("better", "worse", "unchanged")
+
+
+def test_unknown_saved_run_is_reported_not_crashed():
+    assert client.get("/api/runs/does-not-exist").status_code == 404
+    assert client.get("/api/runs/compare?a=does-not-exist&b=nor-this").status_code == 404
+
+
+def test_run_history_tab_is_rendered_from_saved_runs():
+    js = (PKG_ROOT / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'id: "history"' in js and "renderRunHistory" in js and "wireRunHistory" in js
+    assert "/api/runs" in js

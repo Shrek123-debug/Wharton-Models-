@@ -1,7 +1,7 @@
 /* Portfolio analysis dashboard — renders deterministic pipeline output with local plotly.js. */
 "use strict";
 
-const state = { jobId: null, payload: null, pollTimer: null };
+const state = { jobId: null, payload: null, pollTimer: null, runs: [], runLimit: 50 };
 const glossary = { entries: {}, aliases: {} };
 const guideDocs = { tutorial: "", metricdefinitions: "" };
 
@@ -137,6 +137,7 @@ const TABS = [
   { id: "guide", label: "Tutorial", render: renderGuide },
   { id: "defs", label: "Definitions", render: renderDefs },
   { id: "walkthrough", label: "Guided Walkthrough", render: renderWalkthrough },
+  { id: "history", label: "Run History", render: renderRunHistory },
 ];
 
 /* ---------------------------------------------------------------- interpretation */
@@ -379,6 +380,112 @@ function renderWhatIf() {
       ${flags || '<p class="narrative">Both runs triggered the same rule flags — the assumption did not change any decision.</p>'}</div>`;
 }
 
+async function loadRuns() {
+  try {
+    const res = await fetch("/api/runs");
+    if (!res.ok) return;
+    const data = await res.json();
+    state.runs = data.runs || [];
+    state.runLimit = data.limit || 50;
+  } catch (e) { /* history is optional; never block a run */ }
+}
+
+function headlineOf(run, key) {
+  const h = run.headline || {};
+  const hit = Object.keys(h).find(k => k.startsWith(key));
+  return hit ? h[hit] : null;
+}
+
+function renderRunHistory() {
+  const runs = state.runs || [];
+  if (!runs.length) {
+    return `<div class="card"><div class="sub-head">Run History</div>
+      <p class="narrative">No saved runs yet. Every completed analysis is written to
+      <code>portfolio_model/outputs/web/runs/</code> with its headline numbers, so history survives a
+      restart and two runs can be compared later.</p></div>`;
+  }
+  const rows = runs.map(r => {
+    const funded = headlineOf(r, "Probability reserve fully funded [Monte Carlo]");
+    const fundedBs = headlineOf(r, "Probability reserve fully funded [Historical Bootstrap]");
+    const crit = (r.headline || {})["Rule flags: CRITICAL"] ?? 0;
+    const high = (r.headline || {})["Rule flags: HIGH"] ?? 0;
+    const opts = Object.entries(r.overrides || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+    const variant = Object.entries(r.variant || {}).map(([k, v]) => `variant ${k}=${v}`).join(", ");
+    return `<tr>
+      <td><input type="radio" name="runsel" value="A" data-run="${esc(r.id)}"></td>
+      <td><input type="radio" name="runsel" value="B" data-run="${esc(r.id)}"></td>
+      <td>${esc(r.finished_utc)} <span class="mini-note">(${Number(r.elapsed_s).toFixed(0)}s)</span></td>
+      <td>${esc(r.input)}</td>
+      <td class="num">${money(headlineOf(r, "Median terminal value"))}</td>
+      <td class="num">${pct(headlineOf(r, "Probability terminal > contributions"))}</td>
+      <td class="num">${funded === null ? "—" : pct(funded)}</td>
+      <td class="num">${fundedBs === null ? "—" : pct(fundedBs)}</td>
+      <td class="num">${crit} / ${high}</td>
+      <td>${esc(`${r.sims} sims · seed ${r.seed} · ${r.data_sources || "n/a"}`)}</td>
+      <td>${esc(opts || variant || "defaults")}</td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="card"><div class="sub-head">Saved runs (${runs.length} of the last ${state.runLimit || 50})</div>
+      <p class="narrative">These are stored on this machine, newest first. Mark one row <b>A</b> and another
+      <b>B</b>, then compare them: the same direction semantics as the What-If tab, applied to two runs you
+      already made. Useful for "did the change I made actually help?"</p>
+      <p class="mini-note">Stored in <code>portfolio_model/outputs/web/runs/</code> — headline numbers plus the
+      full payload of each run.</p>
+      <button id="btn-compare-runs" class="btn">Compare selected runs</button>
+      <table><thead><tr><th>A</th><th>B</th><th>Finished (UTC)</th><th>Input</th>
+      <th class="num">Median 2033</th><th class="num">P(success)</th><th class="num">P(funded) MC</th>
+      <th class="num">P(funded) bootstrap</th><th class="num">Flags crit/high</th><th>Run settings</th>
+      <th>Options changed</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div id="run-compare"></div>`;
+}
+
+async function wireRunHistory() {
+  const btn = document.getElementById("btn-compare-runs");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const picked = {};
+    document.querySelectorAll("input[name=runsel]:checked").forEach(el => {
+      picked[el.value] = el.dataset.run;
+    });
+    const box = document.getElementById("run-compare");
+    if (!picked.A || !picked.B) {
+      box.innerHTML = `<div class="card"><p class="narrative">Select one run as <b>A</b> and a different
+        one as <b>B</b> before comparing.</p></div>`;
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/runs/compare?a=${encodeURIComponent(picked.A)}&b=${encodeURIComponent(picked.B)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        box.innerHTML = `<div class="card"><p class="narrative">${esc(data.detail || "Comparison failed.")}</p></div>`;
+        return;
+      }
+      const rows = (data.table || []).map(r => {
+        const fmt = isMoneyMetric(r.metric) ? money : (v => Number(v).toFixed(3));
+        const move = r.moves === "better" ? '<span class="move-better">better</span>'
+          : r.moves === "worse" ? '<span class="move-worse">worse</span>' : '<span class="move-flat">unchanged</span>';
+        const pctChange = r["change_%"] === null || r["change_%"] === undefined
+          ? "" : `${(r["change_%"] * 100).toFixed(1)}%`;
+        return `<tr><td>${esc(r.metric)} ${infoBtn(r.metric)}</td>
+          <td class="num">${fmt(r["A · " + data.a.finished_utc])}</td>
+          <td class="num">${fmt(r["B · " + data.b.finished_utc])}</td>
+          <td class="num">${fmt(r.change)}</td><td class="num">${pctChange}</td><td>${move}</td></tr>`;
+      }).join("");
+      box.innerHTML = `<div class="card"><div class="sub-head">Run A versus Run B</div>
+        <p class="mini-note">A: ${esc(data.a.finished_utc)} (${esc(data.a.input)}, ${esc(data.a.sims)} sims) ·
+        B: ${esc(data.b.finished_utc)} (${esc(data.b.input)}, ${esc(data.b.sims)} sims).
+        If the two runs used different inputs or options, read the differences as a combination of
+        those changes rather than one cause.</p>
+        <table><thead><tr><th>Metric</th><th>Run A</th><th>Run B</th><th>Change</th><th>Change %</th>
+        <th>Moves</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 function renderFlags() {
   const p = state.payload;
   const th = p.thresholds;
@@ -465,6 +572,7 @@ function selectTab(id) {
     rerenderTable(th.dataset.table);
   }));
   if (id === "defs") wireDefsSearch();
+  if (id === "history") wireRunHistory();
 }
 
 function renderAll() {
@@ -545,13 +653,14 @@ function pollJob(jobId) {
       state.jobId = jobId;
       setStatus(`✓ Analysis complete in ${Math.round(j.elapsed)}s — ${state.payload.rule_flags.length} rule flags triggered.`, "done");
       renderAll();
+      loadRuns();
     } catch (e) { /* transient */ }
   }, 1000);
 }
 
 /* ---------------------------------------------------------------- init */
 async function init() {
-  await Promise.all([loadGlossary(), loadGuide(), loadSelfCheck()]);
+  await Promise.all([loadGlossary(), loadGuide(), loadSelfCheck(), loadRuns()]);
   try {
     const res = await fetch("/api/config");
     if (!res.ok) {

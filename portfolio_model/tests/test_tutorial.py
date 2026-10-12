@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 PKG_ROOT = Path(__file__).resolve().parent.parent
-DOCS = PKG_ROOT.parent / "docs"
+REPO_ROOT = PKG_ROOT.parent
+DOCS = REPO_ROOT / "docs"
 sys.path.insert(0, str(PKG_ROOT))
 
 from src.config import load_config  # noqa: E402
@@ -130,3 +131,27 @@ def test_definitions_page_is_not_stale():
     assert actual == expected, (
         "docs/METRIC_DEFINITIONS.md is out of date - run "
         "`python portfolio_model/scripts/build_definitions_doc.py`")
+
+
+def test_committed_sample_output_opens_and_is_documented():
+    """A reader should be able to see what the deliverables look like before running anything."""
+    from docx import Document
+    from openpyxl import load_workbook
+
+    sample_xlsx = DOCS / "sample_output" / "sample_output.xlsx"
+    sample_docx = DOCS / "sample_output" / "sample_output_report.docx"
+    assert sample_xlsx.exists(), "no sample workbook committed under docs/sample_output/"
+    assert sample_docx.exists(), "no sample report committed under docs/sample_output/"
+
+    wb = load_workbook(sample_xlsx)
+    assert "Read Me" in wb.sheetnames and "Worked Examples" in wb.sheetnames
+    assert len(wb.sheetnames) >= 20, f"sample workbook has only {len(wb.sheetnames)} sheets"
+
+    doc = Document(sample_docx)
+    headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
+    assert any(h.startswith("Appendix A") for h in headings), "sample report has no definitions appendix"
+    assert any(h.startswith("Appendix B") for h in headings), "sample report has no worked examples"
+    assert any(h.startswith("Appendix C") for h in headings), "sample report has no position guide"
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "sample_output" in readme, "README does not point at the sample deliverables"
