@@ -142,7 +142,12 @@ def ingest(path: str, sheet: str | None = None) -> IngestResult:
                 detected.setdefault(canon, name)
 
     if not frames:
-        raise ValueError(f"No holdings table detected in {path}. Expected a header row with a ticker column plus quantity/value/weight.")
+        raise ValueError(
+            f"No holdings table detected in {path}. Expected a header row with a ticker column "
+            "plus quantity, market value, or weight. If this workbook is a simulation output or a "
+            "dashboard rather than a list of positions, it is not an input file — use one like "
+            "portfolio_model/data/input/example_portfolio_full.xlsx, or set input.sheet to the "
+            "sheet that actually lists holdings.")
 
     holdings = pd.concat(frames, ignore_index=True)
     # merge duplicate detections across sheets (prefer non-null)

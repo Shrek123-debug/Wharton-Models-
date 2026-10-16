@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio Analysis &amp; Risk Management — Local Dashboard</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/plotly.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-title">Portfolio Analysis &amp; Risk Management</span>
+    <span class="brand-sub">Wharton Models · 2033 horizon</span>
+  </div>
+  <div class="badges">
+    <span class="badge local">100% LOCAL</span>
+    <span class="badge det">DETERMINISTIC</span>
+    <span class="badge noai">NO AI / NO LLM</span>
+  </div>
+  <div class="header-right">
+    <span id="meta-line" class="meta-line"></span>
+    <button id="btn-xlsx" class="btn export" disabled>Excel Workbook</button>
+    <button id="btn-docx" class="btn export" disabled>Written Report</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="run-panel" id="run-panel">
+    <h2>Upload &amp; Run</h2>
+    <div class="field">
+      <label for="file">Portfolio spreadsheet (.xlsx)</label>
+      <input type="file" id="file" accept=".xlsx">
+      <div class="hint">Ticker column + weights, market values, or shares×price. Header may sit below title rows.</div>
+    </div>
+    <details open>
+      <summary>Run options (all deterministic, seed-controlled)</summary>
+      <div class="grid2">
+        <div class="field"><label>Simulations</label>
+          <select id="opt-sims"><option>2000</option><option>5000</option><option selected>10000</option><option>25000</option></select></div>
+        <div class="field"><label>Random seed</label><input type="number" id="opt-seed" value="42"></div>
+        <div class="field"><label>MC model</label>
+          <select id="opt-model"><option value="gaussian">Gaussian</option><option value="lognormal">Lognormal</option><option value="student_t">Student-t</option><option value="historical_residual">Historical residual</option></select></div>
+        <div class="field"><label>Glide method</label>
+          <select id="opt-glide"><option value="none">None</option><option value="linear" selected>Linear</option><option value="accelerating">Accelerating</option><option value="stepwise">Stepwise</option></select></div>
+        <div class="field"><label>2033 equity target</label><input type="number" id="opt-end-eq" step="0.01" min="0" max="1" value="0.55"></div>
+        <div class="field"><label>Rebalance band</label><input type="number" id="opt-band" step="0.01" min="0" max="0.5" value="0.05"></div>
+        <div class="field"><label>Correlation threshold</label><input type="number" id="opt-corr" step="0.05" min="0" max="1" value="0.70"></div>
+        <div class="field"><label>Max position</label><input type="number" id="opt-maxpos" step="0.01" min="0" max="1" value="0.25"></div>
+        <div class="field"><label>Max sector</label><input type="number" id="opt-maxsec" step="0.01" min="0" max="1" value="0.35"></div>
+        <div class="field"><label>Max correlated group</label><input type="number" id="opt-maxgrp" step="0.01" min="0" max="1" value="0.30"></div>
+        <div class="field"><label>Min cash</label><input type="number" id="opt-mincash" step="0.01" min="0" max="1" value="0.05"></div>
+        <div class="field"><label>Transaction cost</label><input type="number" id="opt-tcost" step="0.001" min="0" max="0.05" value="0.001"></div>
+        <div class="field"><label>Bootstrap</label>
+          <select id="opt-bs"><option value="block" selected>Block</option><option value="iid">IID</option></select></div>
+        <div class="field"><label>Block size (days)</label>
+          <select id="opt-block"><option>5</option><option selected>20</option><option>60</option></select></div>
+        <div class="field"><label>Sensitivity sims/cell</label>
+          <select id="opt-sens"><option>500</option><option>1000</option><option selected>2000</option></select></div>
+        <div class="field"><label>Market data</label>
+          <select id="opt-offline">
+            <option value="auto">Auto (cache, then live)</option>
+            <option value="always">Offline only (bundled snapshots)</option>
+            <option value="never">Live download required</option>
+          </select></div>
+        <div class="field field-wide"><label>Compare against a variant (KEY=VALUE, comma separated)</label>
+          <input id="opt-variant" type="text" placeholder="glide_end_equity=0.35, model=student_t"
+                 autocomplete="off" spellcheck="false">
+          <p class="field-hint">Runs the same portfolio twice and shows what actually moved. Leave blank to skip.</p>
+        </div>
+      </div>
+    </details>
+    <button id="btn-run" class="btn run">Run Analysis</button>
+    <div id="status" class="status"></div>
+    <div id="env-panel" class="env-panel"></div>
+    <div class="panel-note">
+      Every number on this dashboard is computed locally from your spreadsheet and cached
+      market data using explicit, inspectable formulas. Recommendations are rule-based
+      flags (metric → value → threshold → rule → action), never AI-generated opinions.
+    </div>
+  </aside>
+
+  <main class="content">
+    <div id="empty-state" class="empty-state">
+      <h3>No analysis loaded</h3>
+      <p>Upload a portfolio spreadsheet and press <b>Run Analysis</b>, or load the example portfolio.</p>
+      <button id="btn-example" class="btn run secondary">Run with example portfolio</button>
+    </div>
+    <section id="kpi-strip" class="kpi-strip hidden"></section>
+    <nav id="tabs" class="tabs hidden"></nav>
+    <section id="tab-content" class="tab-content"></section>
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

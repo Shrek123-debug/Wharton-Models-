@@ -70,8 +70,13 @@ def correlation_flags(corr: pd.DataFrame, threshold: float) -> list[dict]:
     return flags
 
 
-def correlation_clusters(corr: pd.DataFrame, threshold: float) -> dict[str, int]:
-    """Single-linkage clusters on |corr| > threshold."""
+def correlation_clusters(corr: pd.DataFrame, threshold: float) -> dict[str, str]:
+    """Single-linkage clusters on |corr| > threshold.
+
+    Returns {ticker: cluster label}: "independent" when a holding has no correlated partner,
+    otherwise "cluster:A,B,C" naming every member, so a reader can see which holdings are
+    really one bet instead of decoding an integer group id.
+    """
     cols = list(corr.columns)
     parent = {c: c for c in cols}
 
@@ -88,15 +93,42 @@ def correlation_clusters(corr: pd.DataFrame, threshold: float) -> dict[str, int]
                 a, b = find(cols[i]), find(cols[j])
                 if a != b:
                     parent[b] = a
-    clusters: dict[str, int] = {}
     groups: dict[str, list[str]] = {}
     for c in cols:
         groups.setdefault(find(c), []).append(c)
-    for k, members in enumerate(groups.values()):
-        label = members[0] if len(members) == 1 else "cluster:" + ",".join(sorted(members))
+    out: dict[str, str] = {}
+    for members in groups.values():
+        label = "independent" if len(members) == 1 else "cluster:" + ",".join(sorted(members))
         for m in members:
-            clusters[m] = k
-    return clusters
+            out[m] = label
+    return out
+
+
+def cluster_summary(corr: pd.DataFrame, weights: pd.Series, threshold: float) -> pd.DataFrame:
+    """One row per correlated cluster: its members, how many, and the weight they carry together."""
+    clusters = correlation_clusters(corr, threshold)
+    grouped: dict[str, list[str]] = {}
+    for ticker, label in clusters.items():
+        if label == "independent":
+            continue
+        grouped.setdefault(label, []).append(ticker)
+    rows = []
+    for label, members in sorted(grouped.items()):
+        pairs = []
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                c = corr.at[a, b] if a in corr.index and b in corr.columns else np.nan
+                if np.isfinite(c):
+                    pairs.append(float(c))
+        rows.append({
+            "cluster": label.removeprefix("cluster:"),
+            "members": ", ".join(sorted(members)),
+            "n_members": len(members),
+            "combined_weight": float(sum(weights.get(m, 0.0) for m in members)),
+            "mean_pairwise_correlation": float(np.mean(pairs)) if pairs else float("nan"),
+            "note": "These holdings move together: size them as one exposure, not as diversification.",
+        })
+    return pd.DataFrame(rows)
 
 
 def drawdown_distribution(paths: np.ndarray) -> dict:

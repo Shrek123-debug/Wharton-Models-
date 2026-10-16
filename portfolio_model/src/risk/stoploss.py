@@ -41,9 +41,7 @@ def backtest_stop(prices: pd.Series, mode: str, level: float, reentry_days: int 
     out_returns = []
     exits = 0
     turnover = 0.0
-    missed = 0.0
     cooldown = 0
-    prev_pos = 1.0
     for i in range(1, len(p)):
         price = p.iloc[i]
         r = returns.iloc[i]

@@ -9,7 +9,6 @@ from openpyxl import Workbook
 from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.utils.dataframe import dataframe_to_rows
 
 TITLE_FONT = Font(bold=True, size=14, color="1F4E79")
 HDR_FONT = Font(bold=True, color="FFFFFF")
@@ -80,11 +79,23 @@ def build_workbook(path: Path, results: dict) -> Path:
 
     # ---- Sheet 2: Holdings
     ws = wb.create_sheet("Holdings")
-    _write_df(ws, results["holdings_sheet"], 1, "Holdings",
+    holdings_out = results["holdings_sheet"].copy()
+    profiles = {p["ticker"]: p for p in results.get("holding_profiles", [])}
+    if profiles:
+        holdings_out["role"] = holdings_out["ticker"].map(
+            lambda t: profiles.get(str(t), {}).get("role", ""))
+        holdings_out["what_this_position_means"] = holdings_out["ticker"].map(
+            lambda t: profiles.get(str(t), {}).get("what_it_means", ""))
+        holdings_out["history_behind_the_estimate"] = holdings_out["ticker"].map(
+            lambda t: profiles.get(str(t), {}).get("history", ""))
+    _write_df(ws, holdings_out, 1, "Holdings",
               pct_cols=("weight", "target_weight", "difference", "volatility", "expected_return",
                         "beta", "var_95", "cvar_95", "return_12m", "contribution_12m"),
               money_cols=("market_value",))
-    _autosize(ws)
+    for row in ws.iter_rows(min_row=4):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws, max_w=60)
 
     # ---- Sheet 3: Sector Allocation
     ws = wb.create_sheet("Sector Allocation")
@@ -160,8 +171,12 @@ def build_workbook(path: Path, results: dict) -> Path:
     ws = wb.create_sheet("Risk")
     end = _write_df(ws, results["risk_sheet"], 1, "Portfolio Risk Metrics",
                     pct_cols=("value",))
-    _write_df(ws, results["recovery_sheet"], end, "Major Drawdown Recovery Events",
-              pct_cols=("drawdown",))
+    end = _write_df(ws, results["recovery_sheet"], end, "Major Drawdown Recovery Events",
+                    pct_cols=("drawdown",))
+    clusters = results.get("cluster_sheet")
+    if clusters is not None and len(clusters):
+        _write_df(ws, clusters, end, "Correlated Clusters (holdings that are really one bet)",
+                  pct_cols=("combined_weight", "mean_pairwise_correlation"))
     _autosize(ws)
 
     # ---- Sheet 12: Stress Tests
@@ -185,6 +200,24 @@ def build_workbook(path: Path, results: dict) -> Path:
     ws = wb.create_sheet("Rebalancing")
     _write_df(ws, results["rebalance_sheet"], 1, "Rebalancing Bands & Suggested Trades",
               pct_cols=("current_weight", "target", "lower_band", "upper_band", "suggested_trade", "turnover"))
+    _autosize(ws)
+
+    # ---- Sheet 14b: Rule Flags (deterministic, threshold-based)
+    ws = wb.create_sheet("Rule Flags")
+    rule_df = pd.DataFrame(results.get("rule_flags", []))
+    if len(rule_df):
+        from ..metric_glossary import GLOSSARY
+
+        rule_df = rule_df.copy()
+        rule_df["metric_definition"] = rule_df.get("glossary_key").map(
+            lambda k: GLOSSARY[k]["meaning"] if isinstance(k, str) and k in GLOSSARY else "")
+        rule_df = rule_df[["id", "severity", "category", "metric", "metric_definition",
+                           "current_value", "threshold", "rule", "action", "evidence"]]
+        end = _write_df(ws, rule_df, 1, "Rule-Based Risk & Rebalancing Flags (deterministic; thresholds from config)")
+        ws.cell(row=end, column=1,
+                value="These are rule-based portfolio risk flags, not AI-generated recommendations.").font = Font(italic=True, size=9)
+    else:
+        ws.cell(row=1, column=1, value="No rule flags triggered.").font = TITLE_FONT
     _autosize(ws)
 
     # ---- Sheet 15: Investment Theses
@@ -212,6 +245,62 @@ def build_workbook(path: Path, results: dict) -> Path:
     _write_df(ws, results["stop_sheet"], 1, "Stop-Loss Backtests (historical, not advice)",
               pct_cols=("cagr", "vol", "max_drawdown", "total_return", "missed_upside"))
     _autosize(ws)
+
+    # ---- Sheet 19: Metric Definitions (rendered from src/metric_glossary.py)
+    from ..metric_glossary import GLOSSARY
+
+    ws = wb.create_sheet("Definitions")
+    def_rows = [{"key": k, "metric": e["label"], "unit": e["unit"], "what_it_is": e["formula"],
+                 "what_it_measures": e["meaning"], "how_to_read_it": e["read_as"],
+                 "what_to_do": e["action"], "trap": e["caveat"]}
+                for k, e in GLOSSARY.items()]
+    end = _write_df(ws, pd.DataFrame(def_rows), 1,
+                    "Metric Definitions — what every number in this workbook means")
+    ws.cell(row=end, column=1,
+            value="Narrative version with the ten most common misreadings: docs/METRIC_DEFINITIONS.md "
+                  "(generated from the same source file).").font = Font(italic=True, size=9)
+    for row in ws.iter_rows(min_row=4, max_col=8):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws, max_w=58)
+
+    # ---- Sheet 21: Worked Examples (every metric recalculated with this portfolio's numbers)
+    examples = results.get("worked_examples") or []
+    ws = wb.create_sheet("Worked Examples")
+    if examples:
+        end = _write_df(ws, pd.DataFrame(examples), 1,
+                        "Worked examples - the arithmetic behind each headline metric, using your own numbers")
+        ws.cell(row=end, column=1,
+                value="Deterministic: every line here is recomputed from this run's results. "
+                      "No model and no generated commentary.").font = Font(italic=True, size=9)
+        for row in ws.iter_rows(min_row=4, max_col=8):
+            for c in row:
+                c.alignment = Alignment(wrap_text=True, vertical="top")
+        _autosize(ws, max_w=60)
+    else:
+        ws.cell(row=1, column=1, value="No worked examples were produced for this run.")
+    _autosize(ws)
+
+    # ---- Sheet 0: Read Me (rendered from src/metric_glossary.py, placed first)
+    from ..metric_glossary import SEVERITY_LEGEND, SHEET_GUIDE, SHEET_QUESTIONS
+
+    ws = wb.create_sheet("Read Me", 0)
+    ws.cell(row=1, column=1, value="How to read this workbook").font = Font(bold=True, size=16, color="1F4E79")
+    ws.cell(row=2, column=1, value="Every forward-looking number in these sheets is a model estimate, a simulation "
+            "result, a scenario or an assumption - never a guarantee. Read it by question, not sheet by sheet."
+            ).font = Font(italic=True, size=9)
+    end = _write_df(ws, pd.DataFrame([{"question": q, "where_to_look": s} for q, s in SHEET_QUESTIONS]),
+                    4, "Start with these questions")
+    end = _write_df(ws, pd.DataFrame([{"sheet": s, "what_it_is_for": d} for s, d in SHEET_GUIDE]),
+                    end, "What each sheet is for")
+    end = _write_df(ws, pd.DataFrame([{"severity": s, "what_it_means": m} for s, m in SEVERITY_LEGEND]),
+                    end, "Severity legend (used by Rule Flags and Data Quality)")
+    ws.cell(row=end, column=1, value="Every metric is defined on the Definitions sheet. The same text generates "
+            "docs/METRIC_DEFINITIONS.md and the web UI Definitions tab.").font = Font(italic=True, size=9)
+    for row in ws.iter_rows(min_row=4, max_col=2):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    _autosize(ws, max_w=70)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

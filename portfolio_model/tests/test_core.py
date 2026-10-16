@@ -27,8 +27,7 @@ MONTHS = pd.date_range("2020-01-31", periods=24, freq="ME")
 def _prices():
     rng = np.random.default_rng(7)
     r = rng.normal(0.01, 0.05, (24, 2))
-    prices = pd.DataFrame(np.cumprod(1 + r, axis=0) * 100, index=MONTHS, columns=["AAA", "BBB"])
-    return prices
+    return pd.DataFrame(np.cumprod(1 + r, axis=0) * 100, index=MONTHS, columns=["AAA", "BBB"])
 
 
 # ---------------------------------------------------------------- returns
@@ -291,6 +290,7 @@ def test_holding_attribution():
 
 # ---------------------------------------------------------------- ingestion / upload robustness
 import openpyxl
+
 from src.ingestion.ingest import coerce_number, ingest
 
 

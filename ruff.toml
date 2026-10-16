@@ -1,0 +1,33 @@
+# Ruff configuration for the portfolio model.
+#
+# The rule set is deliberately practical rather than maximal: it targets the things that
+# actually cause bugs here (unused imports hiding a rename, unused variables left over from
+# a refactor, shadowed builtins, mutable/incorrect defaults, zip without strict) while
+# allowing the CLI/script bootstrap pattern of inserting the package root on sys.path before
+# importing `src.*`.
+
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "B", "I", "UP", "SIM", "RET"]
+ignore = [
+  "E501",    # long lines: the narrative strings and table rows are intentionally long
+  "E731",    # lambda assignment: used for constraint closures in the optimizer
+  "E741",    # ambiguous variable name (l) in legacy loops
+  "B008",    # FastAPI dependency defaults (File(...), Form(...))
+  "B905",    # zip() without strict: paired iterables here are built from the same frame
+  "SIM105",  # try/except/pass: used where an optional dependency must not break a run
+  "SIM102",  # nested ifs kept readable where each level carries its own comment
+  "B007",    # unused loop variable: enumerate() reads better than _ in these loops
+  "E702",    # semicolons in test setup lines
+]
+
+[lint.per-file-ignores]
+"portfolio_model/main.py" = ["E402"]           # sys.path bootstrap before src imports
+"portfolio_model/run_web.py" = ["E402"]
+"portfolio_model/scripts/*" = ["E402"]
+"portfolio_model/tests/*" = ["E402", "F841"]
+
+[lint.isort]
+known-first-party = ["src", "web"]

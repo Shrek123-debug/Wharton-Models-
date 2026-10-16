@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pandas as pd
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
 
@@ -58,11 +57,26 @@ def build_report(path: Path, results: dict) -> Path:
     _p(doc, "All forward-looking figures are model estimates, simulation results, scenarios, or assumptions — "
             "never guarantees.", italic=True)
 
+    # How to read this report
+    _h(doc, "How to read this report")
+    _p(doc, "Read it as answers to these questions rather than front to back:", italic=True)
+    _table(doc, pd.DataFrame([
+        {"question": "Can the 2033 obligation actually be funded?", "see": "Section 12 Model Comparison; Section 6 Risk Analysis"},
+        {"question": "How bad can it get?", "see": "Section 9 Monte Carlo Results; Section 11 Historical Bootstrap Results"},
+        {"question": "Is this actually diversified?", "see": "Section 7 Correlation Analysis; Section 8 Concentration Analysis"},
+        {"question": "Which decisions dominate the outcome?", "see": "Section 19.5 Rule-Based Flags"},
+        {"question": "How much do my assumptions matter?", "see": "Section 13 Sensitivity Analysis"},
+        {"question": "What would a real crisis do to this mix?", "see": "Section 14 Crisis Stress Tests"},
+        {"question": "What does any given number mean?", "see": "Appendix A Metric Definitions"},
+    ]))
+    _p(doc, "Every metric named in this report is defined in Appendix A, generated from the same source "
+            "file as the workbook Definitions sheet and the web UI Definitions tab.", italic=True)
+
     # 1 Executive Summary
     _h(doc, "1. Executive Summary")
     for line in results["exec_summary"]:
         _p(doc, line)
-    _img(doc, results["figures"]["allocation"])
+    _img(doc, results["figures"].get("allocation"))
 
     # 2 Portfolio Overview
     _h(doc, "2. Portfolio Overview")
@@ -73,7 +87,7 @@ def build_report(path: Path, results: dict) -> Path:
     # 3 Current Allocation
     _h(doc, "3. Current Allocation")
     _table(doc, results["sector_sheet"][["weight", "n_holdings"]], pct_cols=("weight",))
-    _img(doc, results["figures"]["sector"])
+    _img(doc, results["figures"].get("sector"))
 
     # 4 Investment Thesis
     _h(doc, "4. Investment Thesis")
@@ -83,8 +97,8 @@ def build_report(path: Path, results: dict) -> Path:
     # 5 Historical Performance
     _h(doc, "5. Historical Performance")
     _p(doc, results["historical_text"])
-    _img(doc, results["figures"]["cumulative"])
-    _img(doc, results["figures"]["drawdown"])
+    _img(doc, results["figures"].get("cumulative"))
+    _img(doc, results["figures"].get("drawdown"))
 
     # 6 Risk Analysis
     _h(doc, "6. Risk Analysis")
@@ -93,19 +107,19 @@ def build_report(path: Path, results: dict) -> Path:
 
     # 7 Correlation Analysis
     _h(doc, "7. Correlation Analysis")
-    _img(doc, results["figures"]["correlation"])
+    _img(doc, results["figures"].get("correlation"))
     _p(doc, results["correlation_text"])
 
     # 8 Concentration Analysis
     _h(doc, "8. Concentration Analysis")
     _p(doc, results["concentration_text"])
-    _img(doc, results["figures"]["concentration"])
+    _img(doc, results["figures"].get("concentration"))
 
     # 9 Monte Carlo Results
     _h(doc, "9. Monte Carlo Results")
     _p(doc, results["mc_text"])
-    _img(doc, results["figures"]["mc_terminal"])
-    _img(doc, results["figures"]["mc_fan"])
+    _img(doc, results["figures"].get("mc_terminal"))
+    _img(doc, results["figures"].get("mc_fan"))
 
     # 10 Markov Model Results
     _h(doc, "10. Markov Model Results")
@@ -115,8 +129,8 @@ def build_report(path: Path, results: dict) -> Path:
     # 11 Historical Bootstrap Results
     _h(doc, "11. Historical Bootstrap Results")
     _p(doc, results["bs_text"])
-    _img(doc, results["figures"]["bs_terminal"])
-    _img(doc, results["figures"]["bs_fan"])
+    _img(doc, results["figures"].get("bs_terminal"))
+    _img(doc, results["figures"].get("bs_fan"))
 
     # 12 Model Comparison
     _h(doc, "12. Model Comparison")
@@ -126,13 +140,13 @@ def build_report(path: Path, results: dict) -> Path:
     # 13 Sensitivity Analysis
     _h(doc, "13. Sensitivity Analysis")
     _p(doc, results["sensitivity_text"])
-    _img(doc, results["figures"]["sens_success"])
-    _img(doc, results["figures"]["sens_terminal"])
+    _img(doc, results["figures"].get("sens_success"))
+    _img(doc, results["figures"].get("sens_terminal"))
 
     # 14 Crisis Stress Tests
     _h(doc, "14. Crisis Stress Tests")
     _table(doc, results["stress_sheet"], pct_cols=("portfolio_return", "max_drawdown"))
-    _img(doc, results["figures"]["crisis"])
+    _img(doc, results["figures"].get("crisis"))
     _h(doc, "14.1 Hypothetical Forward Scenarios (assumptions, not forecasts)", 2)
     _table(doc, results["hypothetical_sheet"], pct_cols=("portfolio_return",))
 
@@ -140,7 +154,7 @@ def build_report(path: Path, results: dict) -> Path:
     _h(doc, "15. Sector Analysis")
     for line in results["sector_narrative"]:
         _p(doc, line)
-    _img(doc, results["figures"]["sector_contrib"])
+    _img(doc, results["figures"].get("sector_contrib"))
 
     # 16 Rebalancing Framework
     _h(doc, "16. Rebalancing Framework")
@@ -149,7 +163,7 @@ def build_report(path: Path, results: dict) -> Path:
 
     # 17 2033 Glide Path
     _h(doc, "17. 2033 Glide Path")
-    _img(doc, results["figures"]["glide"])
+    _img(doc, results["figures"].get("glide"))
     _table(doc, results["glide_impact_sheet"], pct_cols=("prob_depletion", "prob_payments_funded"))
     _p(doc, results["glide_text"], italic=True)
 
@@ -167,6 +181,36 @@ def build_report(path: Path, results: dict) -> Path:
     _h(doc, "19. Key Risks")
     for line in results["key_risks"]:
         _p(doc, f"- {line}")
+
+    # 19.5 Rule-Based Risk Flags (deterministic)
+    _h(doc, "19.5 Rule-Based Risk & Rebalancing Flags")
+    _p(doc, "Every flag below is produced by an explicit rule with a configured threshold and a calculated value. "
+            "These are rule-based portfolio risk flags, not AI-generated recommendations.", italic=True)
+    rule_flags = results.get("rule_flags", [])
+    if rule_flags:
+        rdf = pd.DataFrame(rule_flags)[["id", "severity", "category", "metric", "current_value",
+                                        "threshold", "rule", "action"]]
+        _table(doc, rdf, max_rows=60)
+
+        # Explain the metric each actionable flag is built on, so the suggestion is not a
+        # number the reader has to go and look up somewhere else.
+        from ..metric_glossary import GLOSSARY, lookup
+
+        notable = [f for f in rule_flags if f.get("severity") in ("CRITICAL", "HIGH")]
+        if notable:
+            _h(doc, "19.6 What each high-severity flag is really about", 2)
+            for f in notable:
+                key = f.get("glossary_key") or lookup(f.get("metric"))
+                entry = GLOSSARY.get(key or "")
+                _p(doc, f"{f['id']} ({f['severity']}) — {f.get('metric')}", bold=True)
+                if entry:
+                    _p(doc, f"Metric: {entry['meaning']}")
+                    _p(doc, f"How to read it here: {entry['read_as']}")
+                    _p(doc, f"The trap: {entry['caveat']}", italic=True)
+                _p(doc, f"Do this: {f.get('action')}")
+                _p(doc, f"Evidence: {f.get('evidence')}")
+    else:
+        _p(doc, "No rule flags triggered for the current configuration.")
 
     # 20 Recommended Actions
     _h(doc, "20. Recommended Actions")
@@ -200,6 +244,49 @@ def build_report(path: Path, results: dict) -> Path:
     _h(doc, "Monitoring Checklist")
     for line in results["monitoring"]:
         _p(doc, f"- [ ] {line}")
+
+    # Appendix A: metric definitions (same source as the workbook sheet and the web UI tab)
+    from ..metric_glossary import GLOSSARY
+
+    doc.add_page_break()
+    _h(doc, "Appendix A. Metric Definitions")
+    _p(doc, "Generated from portfolio_model/src/metric_glossary.py — the same source as the workbook "
+            "Definitions sheet and the web UI Definitions tab. The 'Trap' column is the way this metric "
+            "is most often misread.", italic=True)
+    _table(doc, pd.DataFrame([
+        {"metric": e["label"], "what_it_is": e["formula"], "how_to_read_it": e["read_as"],
+         "trap": e["caveat"]}
+        for e in GLOSSARY.values()
+    ]), max_rows=len(GLOSSARY))
+
+    # Appendix B: the same metrics recalculated with this portfolio's numbers
+    examples = results.get("worked_examples") or []
+    if examples:
+        doc.add_page_break()
+        _h(doc, "Appendix B. Worked Examples From This Portfolio")
+        _p(doc, "Each headline metric below is recomputed from this run's own results. Nothing here is "
+                "generated commentary: the numbers are the numbers the engines produced.", italic=True)
+        for e in examples:
+            _p(doc, e["metric"], bold=True)
+            _p(doc, f"Calculation: {e['your_numbers']} = {e['result']}")
+            _p(doc, f"What it means for this portfolio: {e['what_it_means']}")
+            _p(doc, f"The trap: {e['the_trap']}", italic=True)
+            _p(doc, f"What to do: {e['what_to_do']}")
+
+    # Appendix C: position-by-position guide
+    profiles = results.get("holding_profiles") or []
+    if profiles:
+        doc.add_page_break()
+        _h(doc, "Appendix C. Position-by-Position Guide")
+        _p(doc, "What each holding contributes, how much of the plan it carries, and the specific "
+                "thing to watch about it. Every value is this run's own measurement.", italic=True)
+        _table(doc, pd.DataFrame([
+            {"ticker": p["ticker"], "weight": p["weight"], "role": p["role"],
+             "expected_return": p["expected_return"], "volatility": p["volatility"],
+             "contribution_12m": p["contribution_12m"], "confidence": p["confidence"],
+             "history": p["history"], "what_to_watch": p["what_it_means"]}
+            for p in profiles
+        ]), max_rows=len(profiles))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(path)

@@ -1,0 +1,85 @@
+name: CI
+
+# Proves the claim that matters for this repo: every model runs locally, with no network,
+# on a clean checkout. The test job is deliberately network-restricted so an accidental
+# dependency on Yahoo Finance fails loudly instead of passing on a laptop with wifi.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  local-run:
+    name: Offline models + tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    env:
+      PORTFOLIO_OFFLINE: "1"          # never touch the network during tests
+      MPLBACKEND: "Agg"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # requirements-dev.txt pulls in requirements.txt plus pytest and ruff,
+          # so the test and lint steps can never run without their tools.
+          pip install -r requirements-dev.txt
+
+      - name: Show the resolved environment
+        run: python -m pip freeze
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Check JavaScript syntax (dashboard and Apps Script)
+        run: |
+          for f in portfolio_model/web/static/*.js apps-script/*.js; do
+            echo "checking $f"
+            node --check "$f"
+          done
+
+      - name: Environment self-test
+        run: python portfolio_model/main.py --check
+
+      - name: Verify the committed offline dataset is present
+        run: |
+          python portfolio_model/scripts/build_offline_dataset.py --list | head -5
+          test -f portfolio_model/data/offline/SPY.parquet
+          test -f portfolio_model/data/offline/AGG.parquet
+
+      - name: Run the test suite (offline)
+        run: python -m pytest -m "not slow"
+
+      - name: Full offline pipeline run
+        run: |
+          python portfolio_model/main.py --offline --sims 2000 --input portfolio_model/data/input/example_portfolio_full.xlsx
+          test -f portfolio_model/outputs/spreadsheet/portfolio_analysis.xlsx
+          test -f portfolio_model/outputs/report/portfolio_analysis_report.docx
+
+      - name: Verify documentation is generated from the glossary
+        run: |
+          python portfolio_model/scripts/build_definitions_doc.py --check
+          test -f docs/TUTORIAL.md
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: offline-run-py${{ matrix.python-version }}
+          path: |
+            portfolio_model/outputs/spreadsheet/
+            portfolio_model/outputs/report/
+          retention-days: 7

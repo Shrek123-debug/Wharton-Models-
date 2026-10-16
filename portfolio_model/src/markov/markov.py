@@ -146,6 +146,9 @@ def markov_summary(res: dict, total_contributions: float, required_reserve: floa
         "terminal_percentiles": {f"p{p}": float(np.percentile(term, p)) for p in pcts},
         "prob_terminal_gt_start": float((term > total_contributions).mean()),
         "prob_facility_negative": float((facility < 0).mean()),
+        # Markov simulates the growth phase only, so reserve funding is inferred from the
+        # 2033 split: the reserve is fully funded exactly when the facility is not negative.
+        "prob_all_payments_funded": float((facility >= 0).mean()),
         "facility_percentiles": {f"p{p}": float(np.percentile(facility, p)) for p in pcts},
         "prob_bear_next": res["prob_bear_next"],
         "bear_ever_prob": res["bear_ever_prob"],

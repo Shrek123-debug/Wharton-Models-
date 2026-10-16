@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from ..returns.returns import annual_vol_monthly, cagr, simple_returns, to_monthly
+from ..returns.returns import cagr, simple_returns, to_monthly
 
 EQUITY_CLASSES = {"US Equity", "International Equity", "Emerging Market Equity", "ETF", "REIT"}
 DEFENSIVE_SECTORS = {"Health Care", "Consumer Staples", "Utilities"}

@@ -11,6 +11,13 @@ historical_data:
   end_date: null          # null = latest available
   frequency: "daily"      # daily preferred; weekly/monthly fallback
   cache_dir: "data/cache"
+  # ---- offline-first data resolution: cache -> network -> bundled snapshot ----
+  offline: "auto"         # auto   = try the network, fall back to local data
+                          # always = never touch the network (reproducible, CI-friendly)
+                          # never  = require a live download
+  bundled_dir: "data/offline"    # committed price snapshots used when offline
+  max_cache_age_days: 7          # cache newer than this is reused without re-downloading
+  allow_stale_cache: true        # reuse an older cache instead of failing when offline
   benchmarks:
     equity: "SPY"
     bonds: "AGG"

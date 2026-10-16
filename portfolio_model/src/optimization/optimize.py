@@ -8,7 +8,7 @@ from scipy import optimize
 
 def max_sharpe_weights(mu: np.ndarray, cov: np.ndarray, bounds: list[tuple],
                        constraints: list[dict], init: np.ndarray) -> np.ndarray:
-    n = len(mu)
+    len(mu)
 
     def neg_sharpe(w):
         ret = w @ mu

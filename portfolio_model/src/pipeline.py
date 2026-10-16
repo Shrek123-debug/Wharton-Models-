@@ -14,19 +14,28 @@ from .attribution.attribution import holding_attribution, pl_note
 from .bootstrap.bootstrap import run_bootstrap
 from .config import PACKAGE_ROOT, load_config, resolve
 from .ingestion.ingest import ingest
-from .markov.markov import STATE_NAMES, markov_summary, run_markov
+from .interpret import holding_profiles, metric_values, worked_examples
 from .market_data.fetch import align_price_frames, fetch_history
 from .cashflows.schedule import validated_schedule
-from .monte_carlo.mc import SimContext, month_index, required_reserve_pv, run_monte_carlo, summarize_simulation
+from .markov.markov import STATE_NAMES, markov_summary, run_markov
+from .monte_carlo.mc import SimContext, required_reserve_pv, run_monte_carlo, summarize_simulation
 from .optimization.optimize import suggest_allocation
-from .portfolio.portfolio import EQUITY_CLASSES, benchmark_series, build_portfolio, sector_of
+from .portfolio.portfolio import EQUITY_CLASSES, benchmark_series, build_portfolio
 from .reporting import charts
 from .reporting.docx_report import build_report
 from .reporting.excel import build_workbook
-from .returns.returns import annual_vol_monthly, annualize, simple_returns, to_monthly
-from .risk.risk import (concentration_report, correlation_clusters, correlation_flags,
-                        drawdown_distribution, hhi, recovery_analysis, var_cvar_table)
+from .returns.returns import annual_vol_monthly, annualize
+from .risk.risk import (
+    cluster_summary,
+    concentration_report,
+    correlation_clusters,
+    correlation_flags,
+    drawdown_distribution,
+    recovery_analysis,
+    var_cvar_table,
+)
 from .risk.stoploss import run_stop_backtests
+from .rules.rule_engine import build_rule_flags
 from .sectors.sectors import assign_sector, sector_correlations, sector_table
 from .sensitivity.sensitivity import interpret_grid, run_sensitivity
 from .stress_tests.stress import crisis_test, hypothetical_test
@@ -59,13 +68,12 @@ def build_glide_targets(method: str, years: list[int], start_eq: float, end_eq: 
         eq = np.linspace(start_eq, end_eq, n)
     remainder = 1 - eq
     tot = bond_share + cash_share
-    df = pd.DataFrame({
+    return pd.DataFrame({
         "year": years,
         "equity": eq,
         "bond": remainder * (bond_share / tot if tot > 0 else 0.5),
         "cash": remainder * (cash_share / tot if tot > 0 else 0.5),
     }).set_index("year")
-    return df
 
 
 def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
@@ -77,11 +85,15 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
     bond_idx = [i for i, t in enumerate(holdings["ticker"]) if ac[t] in ("Treasury", "Corporate Bond")]
     cash_idx = [i for i, t in enumerate(holdings["ticker"]) if ac[t] == "Cash"]
 
-    eq_w = holdings.loc[equity_idx, "weight"].sum()
-    bd_w = holdings.loc[bond_idx, "weight"].sum()
-    csh_w = holdings.loc[cash_idx, "weight"].sum()
+    # Positional (iloc) indexing throughout: `holdings` may carry a non-default index after
+    # rows are dropped (unavailable tickers, currency exclusions), so label-based .loc with
+    # integer positions silently selected the wrong rows.
+    def _w(idx_list) -> float:
+        return float(holdings.iloc[idx_list]["weight"].sum()) if idx_list else 0.0
+
+    eq_w, bd_w, csh_w = _w(equity_idx), _w(bond_idx), _w(cash_idx)
     gp = cfg["glide_path"]
-    start_eq = gp.get("start_equity") or float(eq_w)
+    start_eq = gp.get("start_equity") or eq_w
     years = list(range(start, glide_end + 1))
     targets = build_glide_targets(gp["method"] if gp["enabled"] else "none", years,
                                   start_eq, gp["end_equity"], bd_w, csh_w, gp.get("custom_targets"))
@@ -92,7 +104,7 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
                                   cf["reserve_discount_rate"])
     payment_months = sched.payment_months
 
-    bond_w = holdings.loc[bond_idx, "weight"].values
+    bond_w = holdings.iloc[bond_idx]["weight"].values if bond_idx else np.array([])
     bond_blend = bond_w / bond_w.sum() if bond_w.sum() > 0 else np.ones(len(bond_idx)) / max(len(bond_idx), 1)
 
     class_base = np.zeros(len(holdings))
@@ -167,15 +179,12 @@ def build_return_params(cfg: dict, holdings: pd.DataFrame, port, rf: float) -> t
 
 # ---------------------------------------------------------------- main run
 def run(input_path: str | None = None, config_path: str | None = None,
-        out_dir: str | None = None, overrides: dict | None = None) -> dict:
+        out_dir: str | None = None, overrides: dict | None = None,
+        render_charts: bool = True) -> dict:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     cfg = load_config(config_path)
     if overrides:
-        if "sims" in overrides:
-            cfg["simulation"]["n_simulations"] = overrides["sims"]
-            cfg["bootstrap"]["n_simulations"] = overrides["sims"]
-        if "seed" in overrides:
-            cfg["simulation"]["random_seed"] = overrides["seed"]
+        _apply_overrides(cfg, overrides)
     sched = validated_schedule(cfg)   # refuse to run on cash flows the case does not allow
     input_path = input_path or resolve(cfg["input"]["spreadsheet"])
     out_dir = Path(out_dir) if out_dir else PACKAGE_ROOT / "outputs"
@@ -194,21 +203,40 @@ def run(input_path: str | None = None, config_path: str | None = None,
     holdings["sector"] = [assign_sector(t, holdings.iloc[i].get("sector")) for i, t in enumerate(holdings["ticker"])]
 
     # 8-9. market data
-    risky = [t for t in holdings["ticker"] if holdings.loc[holdings["ticker"] == t, "asset_class"].iloc[0] != "Cash"]
+    ac_of = dict(zip(holdings["ticker"], holdings["asset_class"]))
+    risky = [t for t in holdings["ticker"] if ac_of[t] != "Cash"]
+    if not risky:
+        raise PipelineError(
+            "Every holding is cash-like, so there is nothing to simulate: no return, volatility "
+            "or correlation can be estimated. Add at least one market-traded holding, or analyse "
+            "the cash position outside the simulation.")
     bench_ticks = [cfg["historical_data"]["benchmarks"]["equity"], cfg["historical_data"]["benchmarks"]["bonds"]]
     start = cfg["historical_data"]["start_date"]
     end = cfg["historical_data"].get("end_date")
     cache = resolve(cfg["historical_data"]["cache_dir"])
-    frames = fetch_history(risky + bench_ticks, start, end, cache)
-    dq_flags = [{"severity": "info", "ticker": t, "issue": "Data status", "detail": str(meta)}
-                for t, meta in pd.read_csv(cache / "_fetch_meta.csv", index_col=0).to_dict("index").items()]
+    hd = cfg["historical_data"]
+    fetch_res = fetch_history(
+        risky + bench_ticks, start, end, cache,
+        offline=hd.get("offline"),
+        bundled_dir=resolve(hd.get("bundled_dir") or "data/offline"),
+        max_age_days=float(hd.get("max_cache_age_days", 7)),
+        allow_stale_cache=bool(hd.get("allow_stale_cache", True)),
+    )
+    frames = fetch_res.frames
+    dq_flags = [{"severity": "info", "ticker": row["ticker"], "issue": "Data provenance",
+                 "detail": (f"source={row['source']} | rows={row['rows']} | inception={row['inception']} "
+                            f"| as_of={row['data_as_of']} | {row['note']}")}
+                for row in fetch_res.as_rows()]
+    for t in fetch_res.missing():
+        dq_flags.append({"severity": "high", "ticker": t, "issue": "Market data unavailable",
+                         "detail": fetch_res.provenance[t]["note"]})
 
     prices = align_price_frames({t: frames[t] for t in risky if t in frames and len(frames[t])})
     missing = [t for t in holdings["ticker"] if t != "CASH" and t not in prices.columns]
     if missing:
         dq_flags.append({"severity": "high", "ticker": ",".join(missing), "issue": "Ticker unavailable",
                          "detail": "No market data found; holdings excluded and remaining weights renormalized."})
-        holdings = holdings[~holdings["ticker"].isin(missing)].copy()
+        holdings = holdings[~holdings["ticker"].isin(missing)].copy().reset_index(drop=True)
         holdings["weight"] = holdings["weight"] / holdings["weight"].sum()
     # cash column earns the risk-free rate daily
     rf = cfg["risk"]["risk_free_rate"]
@@ -264,7 +292,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         {"metric": "75th percentile", "Monte Carlo": mc_sum["terminal_percentiles"]["p75"], "Markov": mk_sum["terminal_percentiles"]["p75"], "Historical Bootstrap": bs_sum["terminal_percentiles"]["p75"]},
         {"metric": "95th percentile", "Monte Carlo": mc_sum["terminal_percentiles"]["p95"], "Markov": mk_sum["terminal_percentiles"]["p95"], "Historical Bootstrap": bs_sum["terminal_percentiles"]["p95"]},
         {"metric": "Probability terminal > contributions", "Monte Carlo": mc_sum["prob_terminal_gt_start"], "Markov": mk_sum["prob_terminal_gt_start"], "Historical Bootstrap": bs_sum["prob_terminal_gt_start"]},
-        {"metric": "Probability reserve fully funded", "Monte Carlo": mc_sum["prob_all_payments_funded"], "Markov": mk_sum["prob_facility_negative"] and 1 - mk_sum["prob_facility_negative"], "Historical Bootstrap": bs_sum["prob_all_payments_funded"]},
+        {"metric": "Probability reserve fully funded", "Monte Carlo": mc_sum["prob_all_payments_funded"], "Markov": mk_sum["prob_all_payments_funded"], "Historical Bootstrap": bs_sum["prob_all_payments_funded"]},
         {"metric": "Median max drawdown (growth)", "Monte Carlo": mc_sum["median_max_drawdown"], "Markov": float("nan"), "Historical Bootstrap": bs_sum["median_max_drawdown"]},
         {"metric": "Probability >20% drawdown", "Monte Carlo": mc_sum["prob_dd_gt_20"], "Markov": float("nan"), "Historical Bootstrap": bs_sum["prob_dd_gt_20"]},
         {"metric": "VaR 95% (terminal)", "Monte Carlo": mc_sum["mc_var_95"], "Markov": mk_sum["mc_var_95"], "Historical Bootstrap": bs_sum["mc_var_95"]},
@@ -299,6 +327,8 @@ def run(input_path: str | None = None, config_path: str | None = None,
     conc = concentration_report(holdings.set_index("ticker")["weight"])
     corr_flags = correlation_flags(port.corr, cfg["risk"]["correlation_threshold"])
     clusters = correlation_clusters(port.corr, cfg["risk"]["correlation_threshold"])
+    cluster_df = cluster_summary(port.corr, holdings.set_index("ticker")["weight"],
+                                 cfg["risk"]["correlation_threshold"])
     dd_dist = drawdown_distribution(mc["portfolio_paths"][:, :mc["split_month"]])
 
     # 25. sector attribution
@@ -307,13 +337,21 @@ def run(input_path: str | None = None, config_path: str | None = None,
     attr = holding_attribution(holdings, port.monthly_returns)
 
     # 26-27. stress tests
-    stress_rows = []
+    stress_rows, stress_full, skipped_windows = [], [], []
     for c in cfg["stress_tests"]["crises"]:
         r = crisis_test(c["name"], c["start"], c["end"], port.portfolio_daily,
                         port.daily_returns, holdings.set_index("ticker")["weight"],
                         holdings, benchmarks)
+        if r.get("error"):
+            # the crisis predates this holding's price history: report it, do not fake numbers
+            skipped_windows.append(f"{c['name']} ({c['start']} to {c['end']}): {r['error']}")
+            continue
         stress_rows.append({k: v for k, v in r.items() if k not in ("holding_returns", "sector_contributions", "benchmarks")})
+        stress_full.append(r)
     stress_df = pd.DataFrame(stress_rows)
+    for s in skipped_windows:
+        dq_flags.append({"severity": "info", "ticker": "-", "issue": "Crisis window skipped",
+                         "detail": f"{s} — the configured window does not overlap the available price history."})
     ac_map = dict(zip(holdings["ticker"], holdings["asset_class"]))
     sec_map = dict(zip(holdings["ticker"], holdings["sector"]))
     hypo_rows = [hypothetical_test(n, s, holdings, ac_map, sec_map) for n, s in cfg["stress_tests"]["hypothetical"].items()]
@@ -358,7 +396,13 @@ def run(input_path: str | None = None, config_path: str | None = None,
         {"method": m, "median_terminal": s["median_terminal"], "p5_terminal": s["terminal_percentiles"]["p5"],
          "prob_depletion": s["prob_capital_depletion"], "prob_payments_funded": s["prob_all_payments_funded"],
          "median_max_dd": s["median_max_drawdown"], "var_95": s["mc_var_95"], "cvar_95": s["mc_cvar_95"]}
-        for m, s in glide_variants.items()])
+         for m, s in glide_variants.items()])
+
+    # 29b. deterministic rule-based risk/rebalancing flags (no AI: thresholds from config)
+    rule_flags = build_rule_flags(cfg, holdings, sec_tbl, conc, corr_flags, mc_sum, bs_sum,
+                                  mk_sum, disagreement_df, confidence, reb_df, sens_interp)
+    log.info("Rule flags: %d triggered (%d high/critical)", len(rule_flags),
+             sum(1 for f in rule_flags if f["severity"] in ("HIGH", "CRITICAL")))
 
     # 30-31. risk discipline + theses
     stop_df = run_stop_backtests(prices, list(holdings["ticker"]),
@@ -392,22 +436,25 @@ def run(input_path: str | None = None, config_path: str | None = None,
 
     # 33. charts
     figs = {}
-    figs["allocation"] = charts.allocation_donut(holdings, fig_dir)
-    figs["sector"] = charts.sector_allocation(sec_tbl, fig_dir)
-    figs["cumulative"] = charts.cumulative_return(port.portfolio_value_index, benchmarks, fig_dir)
-    figs["drawdown"] = charts.drawdown_chart(port.portfolio_value_index, fig_dir)
-    figs["correlation"] = charts.correlation_heatmap(port.corr, fig_dir)
-    figs["mc_terminal"] = charts.terminal_distribution(mc["terminal_2033"], "Monte Carlo", fig_dir, "06_mc_terminal")
-    figs["mc_fan"] = charts.fan_chart(mc_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Monte Carlo", fig_dir, "07_mc_fan")
-    figs["bs_terminal"] = charts.terminal_distribution(bs["terminal_2033"], "Historical Bootstrap", fig_dir, "08_bs_terminal")
-    figs["bs_fan"] = charts.fan_chart(bs_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Historical Bootstrap", fig_dir, "10_bs_fan")
-    figs["sens_success"] = charts.sensitivity_heatmap(sens, "prob_success", "Probability of Success (terminal > contributions)", fig_dir, "13a_sens_success")
-    figs["sens_terminal"] = charts.sensitivity_heatmap(sens, "median_terminal", "Median Terminal Value", fig_dir, "13b_sens_terminal")
-    figs["crisis"] = charts.crisis_comparison([{k: v for k, v in r.items()} for r in _crisis_full(cfg, port, holdings, benchmarks)], fig_dir)
-    figs["glide"] = charts.glide_path_chart(glide_targets, fig_dir)
-    figs["sector_contrib"] = charts.contribution_chart(sec_tbl.reset_index().rename(columns={"sector": "label"})[["label", "contribution_12m"]], fig_dir, "13_sector_contribution", "Sector Contribution to 12m Return")
-    figs["concentration"] = charts.risk_concentration_chart(holdings.set_index("ticker")["weight"], fig_dir)
-    figs["comparison"] = charts.model_comparison_table_image(comparison.to_dict("records"), fig_dir)
+    if render_charts:
+        figs["allocation"] = charts.allocation_donut(holdings, fig_dir)
+        figs["sector"] = charts.sector_allocation(sec_tbl, fig_dir)
+        figs["cumulative"] = charts.cumulative_return(port.portfolio_value_index, benchmarks, fig_dir)
+        figs["drawdown"] = charts.drawdown_chart(port.portfolio_value_index, fig_dir)
+        figs["correlation"] = charts.correlation_heatmap(port.corr, fig_dir)
+        figs["mc_terminal"] = charts.terminal_distribution(mc["terminal_2033"], "Monte Carlo", fig_dir, "06_mc_terminal")
+        figs["mc_fan"] = charts.fan_chart(mc_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Monte Carlo", fig_dir, "07_mc_fan")
+        figs["bs_terminal"] = charts.terminal_distribution(bs["terminal_2033"], "Historical Bootstrap", fig_dir, "08_bs_terminal")
+        figs["bs_fan"] = charts.fan_chart(bs_sum["fan"], cfg["simulation"]["start_year"], cfg["simulation"]["glide_end_year"], "Historical Bootstrap", fig_dir, "10_bs_fan")
+        figs["sens_success"] = charts.sensitivity_heatmap(sens, "prob_success", "Probability of Success (terminal > contributions)", fig_dir, "13a_sens_success")
+        figs["sens_terminal"] = charts.sensitivity_heatmap(sens, "median_terminal", "Median Terminal Value", fig_dir, "13b_sens_terminal")
+        figs["crisis"] = charts.crisis_comparison(stress_full, fig_dir)
+        figs["glide"] = charts.glide_path_chart(glide_targets, fig_dir)
+        figs["sector_contrib"] = charts.contribution_chart(sec_tbl.reset_index().rename(columns={"sector": "label"})[["label", "contribution_12m"]], fig_dir, "13_sector_contribution", "Sector Contribution to 12m Return")
+        figs["concentration"] = charts.risk_concentration_chart(holdings.set_index("ticker")["weight"], fig_dir)
+        figs["comparison"] = charts.model_comparison_table_image(comparison.to_dict("records"), fig_dir)
+    else:
+        log.info("Chart rendering skipped (--no-charts)")
 
     # assemble sheets
     holdings_sheet = _holdings_sheet(holdings, port, params, var_table, clusters, confidence, attr)
@@ -448,11 +495,16 @@ def run(input_path: str | None = None, config_path: str | None = None,
                                       "detail": "Tax effects are excluded because sufficient tax-lot information was not supplied."}]
     dq_df = pd.DataFrame(dq_all)
 
+    prov_rows = fetch_res.as_rows()
+    as_of = max((r["data_as_of"] for r in prov_rows if r["data_as_of"] and r["data_as_of"] != "-"), default="-")
     meta = {"generated_utc": generated, "seed": cfg["simulation"]["random_seed"],
             "n_sims": cfg["simulation"]["n_simulations"], "version": VERSION,
             "portfolio_name": "Laura Gao Portfolio", "input": str(input_path),
             "python": sys.version.split()[0], "platform": platform.platform(),
-            "weights_source": val.weights_source}
+            "weights_source": val.weights_source,
+            "data_as_of": as_of,
+            "data_sources": ", ".join(sorted({r["source"] for r in prov_rows})),
+            "offline_mode": str(cfg["historical_data"].get("offline") or "auto")}
 
     var95 = var_table[var_table.confidence == 0.95].iloc[0]
     dashboard = [
@@ -471,10 +523,11 @@ def run(input_path: str | None = None, config_path: str | None = None,
     ]
 
     results = {
-        "meta": meta, "holdings": holdings, "port": port, "ctx": ctx,
+        "meta": meta, "cfg": cfg, "holdings": holdings, "port": port, "ctx": ctx,
         "dashboard": dashboard,
         "glide_targets": glide_targets, "params": params, "param_table": param_table,
         "mc": {**{k: v for k, v in mc.items() if k in ("n_sims", "model")}, **mc_sum},
+        "mc_terminal": mc["terminal_2033"], "mc_dd": mc["max_drawdown_growth"],
         "mc_sum": mc_sum, "mk_sum": mk_sum, "bs_sum": bs_sum, "mk": mk, "bs": bs,
         "comparison_sheet": comparison, "disagreement_sheet": disagreement_df,
         "markov_states": markov_states, "markov_P": markov_P, "markov_misc": markov_misc,
@@ -482,6 +535,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "stress_sheet": stress_df, "hypothetical_sheet": hypo_df,
         "glide_sheet": glide_targets.reset_index(), "glide_impact_sheet": glide_impact,
         "rebalance_sheet": reb_df, "thesis_sheet": thesis_df, "scorecard": scorecard,
+        "rule_flags": rule_flags,
         "decision_matrix": _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df),
         "risk_sheet": risk_sheet, "recovery_sheet": recovery_df, "holdings_sheet": holdings_sheet, "history_sheet": history_sheet,
         "mc_sheet": mc_sheet, "mc_percentiles": _percentile_frame(mc_sum), "bs_sheet": bs_sheet,
@@ -490,6 +544,8 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "corr": port.corr, "sec_corr": sec_corr, "attr": attr, "conc": conc,
         "var_table": var_table, "dd_dist": dd_dist, "clusters": clusters,
         "confidence": confidence, "figures": figs, "opt": opt,
+        "cluster_sheet": cluster_df,
+        "data_provenance": pd.DataFrame(prov_rows),
         "exec_summary": exec_lines,
         "overview_text": f"{len(holdings)} holdings; net invested capital ${total_contrib:,.0f} ({sched.contributions[0].year}-{sched.contributions[-1].year} contributions); "
                          f"weights {val.weights_source}; equity {cur_cls['Equity']:.0%}, bonds {cur_cls['Bonds']:.0%}, cash {cur_cls['Cash']:.0%}.",
@@ -516,6 +572,11 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "dq_sheet": dq_df,
     }
 
+    # Worked examples: each headline metric, recalculated with this portfolio's own numbers.
+    results["worked_examples"] = worked_examples(results)
+    results["metric_values"] = metric_values(results)
+    results["holding_profiles"] = holding_profiles(results)
+
     # 34-37. outputs
     xlsx = build_workbook(out_dir / "spreadsheet" / "portfolio_analysis.xlsx", results)
     docx = build_report(out_dir / "report" / "portfolio_analysis_report.docx", results)
@@ -526,12 +587,98 @@ def run(input_path: str | None = None, config_path: str | None = None,
 
 
 # ---------------------------------------------------------------- helpers
-def _crisis_full(cfg, port, holdings, benchmarks):
-    out = []
-    for c in cfg["stress_tests"]["crises"]:
-        out.append(crisis_test(c["name"], c["start"], c["end"], port.portfolio_daily,
-                               port.daily_returns, holdings.set_index("ticker")["weight"], holdings, benchmarks))
-    return out
+_ALLOWED_OVERRIDES = {
+    "sims", "seed", "model", "student_t_dof", "glide_method", "glide_end_equity",
+    "rebalancing_enabled", "band", "transaction_cost", "corr_threshold", "max_position",
+    "max_sector", "max_group", "min_cash", "risk_free_rate", "inflation_base",
+    "bootstrap_method", "block_size_days", "sensitivity_sims", "offline",
+    "max_cache_age_days", "start_date", "end_date",
+}
+
+
+class PipelineError(RuntimeError):
+    """Raised for user-facing problems (bad input, bad override, unusable data)."""
+
+
+def _ov_int(overrides: dict, key: str, target: dict, path: str, lo: int, hi: int) -> None:
+    if key not in overrides:
+        return
+    try:
+        val = int(float(overrides[key]))
+    except (TypeError, ValueError):
+        raise PipelineError(f"Override '{key}' must be a whole number, got {overrides[key]!r}") from None
+    if not (lo <= val <= hi):
+        raise PipelineError(f"Override '{key}' must be between {lo} and {hi}, got {val}")
+    target[path] = val
+
+
+def _ov_float(overrides: dict, key: str, target: dict, path: str, lo: float, hi: float) -> None:
+    if key not in overrides:
+        return
+    try:
+        val = float(overrides[key])
+    except (TypeError, ValueError):
+        raise PipelineError(f"Override '{key}' must be a number, got {overrides[key]!r}") from None
+    if not (lo <= val <= hi):
+        raise PipelineError(f"Override '{key}' must be between {lo} and {hi}, got {val}")
+    target[path] = val
+
+
+def _ov_choice(overrides: dict, key: str, target: dict, path: str, allowed: tuple[str, ...]) -> None:
+    if key not in overrides:
+        return
+    val = str(overrides[key]).strip().lower()
+    if val not in allowed:
+        raise PipelineError(f"Override '{key}' must be one of {', '.join(allowed)}; got {overrides[key]!r}")
+    target[path] = val
+
+
+def _apply_overrides(cfg: dict, overrides: dict) -> None:
+    """Whitelisted, validated runtime overrides (used by CLI and the web UI).
+
+    Every accepted key is clamped to a sane range so a mistyped UI value produces a
+    clear message instead of a crash or a silently absurd simulation.
+    """
+    sim, boot, risk = cfg["simulation"], cfg["bootstrap"], cfg["risk"]
+    reb, glide, hist = cfg["rebalancing"], cfg["glide_path"], cfg["historical_data"]
+
+    _ov_int(overrides, "sims", sim, "n_simulations", 200, 200_000)
+    if "sims" in overrides:
+        boot["n_simulations"] = sim["n_simulations"]
+    _ov_int(overrides, "seed", sim, "random_seed", 0, 2**31 - 1)
+    _ov_choice(overrides, "model", sim, "model", ("gaussian", "lognormal", "student_t", "historical_residual"))
+    _ov_int(overrides, "student_t_dof", sim, "student_t_dof", 3, 30)
+    _ov_choice(overrides, "glide_method", glide, "method", ("none", "linear", "accelerating", "stepwise", "custom"))
+    glide["enabled"] = glide["method"] != "none"
+    _ov_float(overrides, "glide_end_equity", glide, "end_equity", 0.0, 1.0)
+    if "rebalancing_enabled" in overrides:
+        reb["enabled"] = bool(overrides["rebalancing_enabled"])
+    _ov_float(overrides, "band", reb, "band", 0.0, 0.50)
+    _ov_float(overrides, "transaction_cost", reb, "transaction_cost", 0.0, 0.05)
+    _ov_float(overrides, "corr_threshold", risk, "correlation_threshold", 0.0, 1.0)
+    _ov_float(overrides, "max_position", risk, "max_position_weight", 0.01, 1.0)
+    _ov_float(overrides, "max_sector", risk, "max_sector_weight", 0.01, 1.0)
+    _ov_float(overrides, "max_group", risk, "max_correlated_group_weight", 0.01, 1.0)
+    _ov_float(overrides, "min_cash", risk, "min_cash_weight", 0.0, 1.0)
+    _ov_float(overrides, "risk_free_rate", risk, "risk_free_rate", -0.05, 0.20)
+    _ov_float(overrides, "inflation_base", risk, "inflation_base", -0.05, 0.20)
+    _ov_choice(overrides, "bootstrap_method", boot, "method", ("iid", "block"))
+    _ov_int(overrides, "block_size_days", boot, "block_size_days", 1, 252)
+    _ov_int(overrides, "sensitivity_sims", cfg["sensitivity"], "n_simulations", 200, 50_000)
+    _ov_choice(overrides, "offline", hist, "offline", ("auto", "always", "never"))
+    _ov_int(overrides, "max_cache_age_days", hist, "max_cache_age_days", 0, 3650)
+    for key, path in (("start_date", "start_date"), ("end_date", "end_date")):
+        if key in overrides and overrides[key]:
+            val = str(overrides[key]).strip()
+            try:
+                pd.Timestamp(val)
+            except Exception:
+                raise PipelineError(f"Override '{key}' must look like YYYY-MM-DD, got {overrides[key]!r}") from None
+            hist[path] = val
+    unknown = sorted(set(overrides) - _ALLOWED_OVERRIDES)
+    if unknown:
+        raise PipelineError("Unknown override(s): " + ", ".join(unknown) +
+                            ". Allowed: " + ", ".join(sorted(_ALLOWED_OVERRIDES)))
 
 
 def _role(h) -> str:
@@ -553,6 +700,8 @@ def _role(h) -> str:
 def _risk_rating(h, conf, clusters) -> str:
     if conf == "Low":
         return "High (short history)"
+    if h["ticker"] != "CASH" and clusters.get(h["ticker"], "independent") != "independent":
+        return "Elevated (correlated cluster)"
     if h.get("volatility") and float(h["volatility"]) >= 0.35:
         return "Elevated (high volatility)"
     return "Moderate"
@@ -563,7 +712,6 @@ def _holdings_sheet(holdings, port, params, var_table, clusters, confidence, att
     attr_map = attr.set_index("ticker")
     for _, h in holdings.iterrows():
         t = h["ticker"]
-        p = params["corr"]
         beta = float(np.cov(port.monthly_returns[t].fillna(0), port.portfolio_monthly)[0, 1] /
                      np.var(port.portfolio_monthly)) if t in port.monthly_returns.columns and t != "CASH" else 0.0
         vol = float(params["vol_annual"][list(holdings["ticker"]).index(t)])
@@ -577,7 +725,7 @@ def _holdings_sheet(holdings, port, params, var_table, clusters, confidence, att
             flags.append("HIGH CONCENTRATION")
         if confidence.get(t) == "Low":
             flags.append("LOW CONFIDENCE")
-        if clusters.get(t, -1) >= 0 and t != "CASH":
+        if t != "CASH" and clusters.get(t, "independent") != "independent":
             flags.append("CORRELATION CLUSTER")
         rows.append({
             "ticker": t, "asset_class": h["asset_class"], "sector": h["sector"],
@@ -720,7 +868,7 @@ def _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df) -> pd
 
 
 def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreement_df, ctx) -> list[str]:
-    lines = [
+    return [
         f"Where are we now? {len(holdings)} holdings; equity {holdings[holdings['asset_class'].isin(EQUITY_CLASSES)]['weight'].sum():.0%}, "
         f"bonds {holdings[holdings['asset_class'].isin(['Treasury', 'Corporate Bond'])]['weight'].sum():.0%}, "
         f"cash {holdings[holdings['asset_class'] == 'Cash']['weight'].sum():.0%}. Historical CAGR {port.stats['cagr_historical']:.1%}, "
@@ -733,13 +881,12 @@ def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreemen
         f"Biggest concentration: correlated group Growth/Consumer-Tech (ADBE+DIS+DUOL) at "
         f"{holdings[holdings['correlation_group'] == 'Growth/Consumer-Tech']['weight'].sum():.0%} vs 30% cap; "
         f"largest single holding {conc['largest'][0]} at {conc['largest'][1]:.0%}.",
-        f"Biggest modeling uncertainty: " + ("MATERIAL disagreement between Monte Carlo and historical bootstrap — see Model Comparison."
+        "Biggest modeling uncertainty: " + ("MATERIAL disagreement between Monte Carlo and historical bootstrap — see Model Comparison."
                                             if any("Material" in str(f) for f in disagreement_df.to_dict("records"))
                                             else "Monte Carlo and historical bootstrap broadly agree."),
         "What should change? See Recommended Actions (prioritized): trim correlated-group overweight, size the 2033 reserve from bootstrap (heavier-tail) results, adopt the glide path.",
         f"Reserve design: required reserve (PV of {len(ctx.schedule.payments)} x ${ctx.schedule.payment_amount:,.0f} payments {ctx.schedule.first_payment_year}-{ctx.schedule.last_payment_year} at a team-assumed {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
     ]
-    return lines
 
 
 def _historical_text(port, benchmarks) -> str:
@@ -769,8 +916,7 @@ def _concentration_text(conc, holdings) -> str:
 
 
 def _mc_text(cfg, s, ctx, contrib) -> str:
-    text = (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > ${contrib:,.0f} invested) = {s['prob_terminal_gt_start']:.1%}; P(all {len(ctx.schedule.payments)} reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
-    return text
+    return (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > ${contrib:,.0f} invested) = {s['prob_terminal_gt_start']:.1%}; P(all {len(ctx.schedule.payments)} reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
 
 
 def _markov_text(mk, s) -> str:
@@ -778,8 +924,8 @@ def _markov_text(mk, s) -> str:
             f"Current state: {mk['current_state']}. P(bear next year) {mk['prob_bear_next']:.1%}; "
             f"P(bear at any point 2027-2032) {mk['bear_ever_prob']:.1%}. Stationary distribution: "
             + ", ".join(f"{s_}={p:.2f}" for s_, p in zip(STATE_NAMES, mk["stationary"])) + ". "
-            f"Limitations: Markov memoryless assumption, state discretization, dependence on historical transition "
-            f"frequencies, non-stationarity, structural market change — not a deterministic forecast.")
+            "Limitations: Markov memoryless assumption, state discretization, dependence on historical transition "
+            "frequencies, non-stationarity, structural market change — not a deterministic forecast.")
 
 
 def _bs_text(cfg, s, ctx, contrib) -> str:
@@ -820,7 +966,7 @@ def _key_risks(cfg, holdings, mc_sum, bs_sum, conc, corr_flags, confidence) -> l
 
 def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_flags, disagreement_df, confidence, glide_variants) -> dict:
     group_w = holdings[holdings["correlation_group"] == "Growth/Consumer-Tech"]["weight"].sum()
-    recs = {
+    return {
         "Immediate (Priority 1-2)": [
             f"Trim the Growth/Consumer-Tech correlated group from {group_w:.0%} toward the 30% cap (e.g., reduce DUOL/ADBE) — model identifies a cap breach; investor should weigh tax and conviction before acting.",
             f"Size the 2033 reserve using the bootstrap (heavier-tail) distribution, not the Gaussian MC: bootstrap P(funded) = {bs_sum['prob_all_payments_funded']:.1%}.",
@@ -839,7 +985,6 @@ def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_fl
             "Correlation clusters during stress periods (correlations rise in crises).",
         ],
     }
-    return recs
 
 
 def _methodology(cfg) -> list[str]:
@@ -934,7 +1079,7 @@ def _sanity_checks(results) -> None:
         for s in (results["mc_sum"], results["bs_sum"]):
             assert 0 <= s[key] <= 1, "probabilities out of range"
     assert results["mc_sum"]["mc_cvar_95"] >= results["mc_sum"]["mc_var_95"] - 1e-9, "CVaR must exceed VaR"
-    assert results["mc"]["n_sims"] == results["bs"]["n_sims"] == 10000
+    assert results["mc"]["n_sims"] == results["bs"]["n_sims"] == results["meta"]["n_sims"], "sim counts must match"
     for name in ("holdings_sheet", "comparison_sheet", "risk_sheet", "stress_sheet"):
         df = results[name]
         num = df.select_dtypes(include=[np.number])

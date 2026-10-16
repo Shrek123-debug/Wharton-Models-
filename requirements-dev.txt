@@ -1,0 +1,5 @@
+# Development extras (not needed to run the models)
+-r requirements.txt
+pytest>=8.0
+ruff>=0.6
+httpx>=0.27          # FastAPI TestClient, used by the web API contract tests
