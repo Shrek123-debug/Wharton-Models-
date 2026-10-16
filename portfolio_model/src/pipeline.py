@@ -12,11 +12,11 @@ import pandas as pd
 
 from .attribution.attribution import holding_attribution, pl_note
 from .bootstrap.bootstrap import run_bootstrap
+from .cashflows.schedule import validated_schedule
 from .config import PACKAGE_ROOT, load_config, resolve
 from .ingestion.ingest import ingest
 from .interpret import holding_profiles, metric_values, worked_examples
 from .market_data.fetch import align_price_frames, fetch_history
-from .cashflows.schedule import validated_schedule
 from .markov.markov import STATE_NAMES, markov_summary, run_markov
 from .monte_carlo.mc import SimContext, required_reserve_pv, run_monte_carlo, summarize_simulation
 from .optimization.optimize import suggest_allocation
