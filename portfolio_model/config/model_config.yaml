@@ -33,17 +33,35 @@ simulation:
   model: "gaussian"       # gaussian | lognormal | student_t | historical_residual
   student_t_dof: 5
 
+# Competition case rules, transcribed from "2026 WGY Gao Case Study" (Investment Competition Guide).
+# With enforce: true the model REFUSES to run if `cashflows` below contradicts them, so every
+# projection uses exactly the case's money movements. Set enforce: false only for what-if runs.
+case_rules:
+  enforce: true
+  source: "2026 WGY Gao Case Study - FINAL (Investment Competition Guide)"
+  year_zero: 2026                      # 2026 = Year 0, 2027 = Year 1, 2033 = Year 7
+  contributions: {2027: 300000, 2028: 150000}   # beginning of each year
+  no_other_flows_before_reserve: true  # "she will neither add to nor withdraw from the portfolio before 2033"
+  operating_payment: {amount: 50000, count: 10, first_year: 2033, inflation_adjusted: false}
+  sponsor_checkpoint_year: 2031        # Laura starts approaching co-sponsors (Year 5)
+  # Not modelled, per the case: WInS trading gains/losses, income tax, capital-gains tax, facility cost.
+
+# The schedule the simulators actually run. Every amount is at the BEGINNING of its year.
 cashflows:
+  year_zero: 2026
+  reserve_setup_year: 2033        # reserve carved out before payment 1 and any facility contribution
+  sponsor_checkpoint_year: 2031
   contributions:
     - {year: 2027, amount: 300000, timing: "start"}
     - {year: 2028, amount: 150000, timing: "start"}
-  withdrawals: []
+  withdrawals: []                 # [{year: 2030, amount: 25000, timing: "start"}] ; case allows none before 2033
   reserve_payments:
-    amount: 50000
+    amount: 50000                 # fixed nominal dollars, NOT inflation-adjusted (case rule)
     first_year: 2033
     last_year: 2042
     timing: "start"
-  reserve_discount_rate: 0.029   # calibrated to existing workbook reserve (~$441,264)
+  # TEAM ASSUMPTION, not a case rule: rate used only to size the reserve as the PV of the ten payments.
+  reserve_discount_rate: 0.029
 
 expected_returns:
   source: "input"         # input = use spreadsheet Expected Return/Volatility columns when present

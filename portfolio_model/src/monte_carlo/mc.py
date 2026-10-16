@@ -1,16 +1,15 @@
 """Monte Carlo engine (spec sections 10-14) + shared path simulation core.
 
-Timeline modeled (from user-supplied schedule):
-  2027-01  invest 300,000
-  2028-01  invest 150,000
-  2027-2032 growth phase with glide path
-  2031     sponsor range = projected facility-contribution range
-  2033-01  split: reserve (PV of 10 x 50k payments) + facility contribution (surplus)
-  2033-2042 reserve phase: 50k paid at start of each year; success = all 10 funded
+Timeline modeled (driven by src/cashflows/schedule.py, validated against the case rules):
+  contributions / withdrawals   at the start of the years in the schedule (case: $300k 2027, $150k 2028)
+  growth phase                  glide path until the reserve set-up year (case: 2033)
+  checkpoint year               sponsor range = projected facility-contribution range (case: 2031)
+  reserve set-up year, month 0  split: reserve (PV of the operating payments) + facility contribution (surplus)
+  reserve phase                 fixed payment at the start of each year; success = every payment funded
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -37,6 +36,9 @@ class SimContext:
     inflation: float
     bond_blend: np.ndarray           # weights across bond assets for reserve phase
     class_base: np.ndarray           # per-asset relative weight within its asset class (sums to 1 per class)
+    withdrawals: dict[int, float] = field(default_factory=dict)  # month index -> amount (before the reserve split)
+    checkpoint_year: int = 2031      # year the co-sponsor range is communicated
+    schedule: object = None          # the validated CashflowSchedule that produced the flows above
 
 
 def month_index(ctx: SimContext, year: int, month: int = 1) -> int:
@@ -101,6 +103,7 @@ def simulate_paths(asset_returns: np.ndarray, ctx: SimContext) -> dict:
     facility = np.zeros(n_sims)
     min_reserve_after_pay = np.full(n_sims, np.inf)
     payments_funded = np.ones(n_sims, dtype=bool)
+    withdrawals_unfunded = np.zeros(n_sims, dtype=bool)
     split_month = month_index(ctx, ctx.glide_end_year)
     target = ctx.glide_targets[["equity", "bond", "cash"]].values  # rows: years from start
 
@@ -133,6 +136,13 @@ def simulate_paths(asset_returns: np.ndarray, ctx: SimContext) -> dict:
         if m in ctx.contributions:
             c = ctx.contributions[m]
             values += c * tgt
+
+        if m in ctx.withdrawals and m < split_month:
+            w = ctx.withdrawals[m]
+            total = values.sum(axis=1)
+            take = np.minimum(w, total)
+            withdrawals_unfunded |= total < w - 1e-9
+            values = values * (1 - take / np.maximum(total, 1e-12))[:, None]
 
         if m == split_month:
             v = values.sum(axis=1)
@@ -190,6 +200,7 @@ def simulate_paths(asset_returns: np.ndarray, ctx: SimContext) -> dict:
         "reserve_balance_end": reserve_bal,
         "min_reserve_after_payment": min_reserve_after_pay,
         "all_payments_funded": payments_funded,
+        "withdrawals_unfunded": withdrawals_unfunded,
         "max_drawdown_growth": max_dd,
         "turnover": turnover_total,
         "n_rebalances": rebalances,
@@ -234,6 +245,7 @@ def summarize_simulation(res: dict, ctx: SimContext, total_contributions: float)
         "terminal_percentiles": {f"p{p}": float(np.percentile(term, p)) for p in pcts},
         "prob_terminal_gt_start": float((term > total_contributions).mean()),
         "prob_terminal_gt_real_start": float((term > real_contrib).mean()),
+        "prob_withdrawals_unfunded": float(res["withdrawals_unfunded"].mean()),
         "prob_capital_depletion": float((term <= 1e-6).mean()),
         "prob_all_payments_funded": float(res["all_payments_funded"].mean()),
         "prob_dd_gt_10": float((res["max_drawdown_growth"] <= -0.10).mean()),
@@ -255,11 +267,14 @@ def summarize_simulation(res: dict, ctx: SimContext, total_contributions: float)
     # fan percentiles over time
     fan = {p: np.percentile(paths[:, :split], p, axis=0) for p in (5, 10, 25, 50, 75, 90, 95)}
     out["fan"] = fan
-    # 2031 sponsor checkpoint: value at start of 2031 and projected facility range
-    m2031 = month_index(ctx, 2031)
-    v2031 = paths[:, m2031 - 1] if m2031 > 0 else paths[:, 0]
-    out["v2031_percentiles"] = {f"p{p}": float(np.percentile(v2031, p)) for p in pcts}
-    out["projected_facility_2031"] = {f"p{p}": float(np.percentile(v2031 - ctx.required_reserve, p)) for p in pcts}
+    # sponsor checkpoint (case: 2031): value at the start of that year and the facility range it implies
+    mck = month_index(ctx, ctx.checkpoint_year)
+    vck = paths[:, mck - 1] if mck > 0 else paths[:, 0]
+    out["checkpoint_year"] = ctx.checkpoint_year
+    out["v_checkpoint_percentiles"] = {f"p{p}": float(np.percentile(vck, p)) for p in pcts}
+    out["projected_facility_checkpoint"] = {f"p{p}": float(np.percentile(vck - ctx.required_reserve, p)) for p in pcts}
+    out["v2031_percentiles"] = out["v_checkpoint_percentiles"]            # legacy keys
+    out["projected_facility_2031"] = out["projected_facility_checkpoint"]
     # terminal VaR/CVaR on simulated terminal returns
     tr = term / total_contributions - 1
     q95, q99 = np.quantile(tr, 0.05), np.quantile(tr, 0.01)

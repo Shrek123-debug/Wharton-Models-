@@ -12,6 +12,7 @@ import pandas as pd
 
 from .attribution.attribution import holding_attribution, pl_note
 from .bootstrap.bootstrap import run_bootstrap
+from .cashflows.schedule import validated_schedule
 from .config import PACKAGE_ROOT, load_config, resolve
 from .ingestion.ingest import ingest
 from .interpret import holding_profiles, metric_values, worked_examples
@@ -97,10 +98,11 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
     targets = build_glide_targets(gp["method"] if gp["enabled"] else "none", years,
                                   start_eq, gp["end_equity"], bd_w, csh_w, gp.get("custom_targets"))
 
-    contributions = {(c["year"] - start) * 12: c["amount"] for c in cf["contributions"]}
-    rp = cf["reserve_payments"]
-    reserve = required_reserve_pv(rp["amount"], rp["first_year"], rp["last_year"], cf["reserve_discount_rate"])
-    payment_months = [(y - start) * 12 for y in range(rp["first_year"], rp["last_year"] + 1)]
+    sched = validated_schedule(cfg)
+    contributions = sched.contribution_months
+    reserve = required_reserve_pv(sched.payment_amount, sched.first_payment_year, sched.last_payment_year,
+                                  cf["reserve_discount_rate"])
+    payment_months = sched.payment_months
 
     bond_w = holdings.iloc[bond_idx]["weight"].values if bond_idx else np.array([])
     bond_blend = bond_w / bond_w.sum() if bond_w.sum() > 0 else np.ones(len(bond_idx)) / max(len(bond_idx), 1)
@@ -119,9 +121,10 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
         band = reb.get("relative_band", 0.25)
 
     return SimContext(start, glide_end, reserve_end, equity_idx, bond_idx, cash_idx,
-                      targets, contributions, reserve, payment_months, rp["amount"],
+                      targets, contributions, reserve, payment_months, sched.payment_amount,
                       band, band_mode, reb["transaction_cost"], cfg["risk"]["inflation_base"],
-                      bond_blend, class_base), targets
+                      bond_blend, class_base, withdrawals=sched.withdrawal_months,
+                      checkpoint_year=sched.checkpoint_year, schedule=sched), targets
 
 
 # ---------------------------------------------------------------- expected params
@@ -182,6 +185,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
     cfg = load_config(config_path)
     if overrides:
         _apply_overrides(cfg, overrides)
+    sched = validated_schedule(cfg)   # refuse to run on cash flows the case does not allow
     input_path = input_path or resolve(cfg["input"]["spreadsheet"])
     out_dir = Path(out_dir) if out_dir else PACKAGE_ROOT / "outputs"
     fig_dir = out_dir / "figures"
@@ -260,7 +264,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
     # 15-20. engines
     params, param_table = build_return_params(cfg, holdings, port, rf)
     ctx, glide_targets = build_context(cfg, holdings, port)
-    total_contrib = sum(c["amount"] for c in cfg["cashflows"]["contributions"])
+    total_contrib = sched.net_invested   # contributions less any pre-reserve withdrawals
 
     mc_model = cfg["simulation"]["model"]
     mc = run_monte_carlo(params, ctx, cfg["simulation"]["n_simulations"], cfg["simulation"]["random_seed"],
@@ -455,8 +459,8 @@ def run(input_path: str | None = None, config_path: str | None = None,
     # assemble sheets
     holdings_sheet = _holdings_sheet(holdings, port, params, var_table, clusters, confidence, attr)
     history_sheet = _history_sheet(port, benchmarks)
-    mc_sheet = _sim_sheet(mc, total_contrib)
-    bs_sheet = _sim_sheet(bs, total_contrib)
+    mc_sheet = _sim_sheet(mc, total_contrib, cfg["simulation"]["glide_end_year"] - cfg["simulation"]["start_year"])
+    bs_sheet = _sim_sheet(bs, total_contrib, cfg["simulation"]["glide_end_year"] - cfg["simulation"]["start_year"])
     risk_sheet = _risk_sheet(port, var_table, mc_sum, bs_sum, conc, dd_dist, sec_corr)
     extra = []
     for infl in cfg["risk"]["inflation_scenarios"]:
@@ -504,7 +508,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
 
     var95 = var_table[var_table.confidence == 0.95].iloc[0]
     dashboard = [
-        ("Invested Capital (2027-28)", float(total_contrib), "#,##0"),
+        (f"Invested Capital ({sched.contributions[0].year}-{str(sched.contributions[-1].year)[2:]})", float(total_contrib), "#,##0"),
         ("Expected CAGR (MC)", mc_sum["cagr_money_weighted"], "0.0%"),
         ("Historical CAGR", port.stats["cagr_historical"], "0.0%"),
         ("Volatility (hist, annual)", port.stats["annual_volatility"], "0.0%"),
@@ -543,7 +547,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "cluster_sheet": cluster_df,
         "data_provenance": pd.DataFrame(prov_rows),
         "exec_summary": exec_lines,
-        "overview_text": f"{len(holdings)} holdings; total invested contributions ${total_contrib:,} (2027-2028); "
+        "overview_text": f"{len(holdings)} holdings; net invested capital ${total_contrib:,.0f} ({sched.contributions[0].year}-{sched.contributions[-1].year} contributions); "
                          f"weights {val.weights_source}; equity {cur_cls['Equity']:.0%}, bonds {cur_cls['Bonds']:.0%}, cash {cur_cls['Cash']:.0%}.",
         "historical_text": _historical_text(port, benchmarks),
         "risk_text": "VaR/CVaR are one-month horizon figures unless labeled terminal; historical, parametric, and Monte Carlo variants shown for comparison.",
@@ -755,7 +759,7 @@ def _history_sheet(port, benchmarks) -> pd.DataFrame:
     return df
 
 
-def _sim_sheet(res, total_contrib: float) -> pd.DataFrame:
+def _sim_sheet(res, total_contrib: float, years: int) -> pd.DataFrame:
     n = min(200, res["n_sims"])
     idx = np.linspace(0, res["n_sims"] - 1, n).astype(int)
     term = res["terminal_2033"][idx]
@@ -763,7 +767,7 @@ def _sim_sheet(res, total_contrib: float) -> pd.DataFrame:
     return pd.DataFrame({
         "simulation": idx + 1,
         "terminal_value": term,
-        "cagr": (term / total_contrib) ** (1 / 6) - 1,
+        "cagr": (term / total_contrib) ** (1 / years) - 1,
         "max_drawdown": res["max_drawdown_growth"][idx],
         "min_value": paths.min(axis=1),
         "success": res["all_payments_funded"][idx].astype(int),
@@ -774,8 +778,8 @@ def _percentile_frame(s) -> pd.DataFrame:
     rows = [{"metric": f"Terminal {k}", "value": v} for k, v in s["terminal_percentiles"].items()]
     rows += [{"metric": f"Facility contribution {k}", "value": v} for k, v in s["facility_percentiles"].items()]
     rows += [{"metric": "Median facility contribution", "value": s["median_facility"]},
-             {"metric": "2031 sponsor range (p5-p95 of value at start 2031 minus reserve)",
-              "value": f"${s['projected_facility_2031']['p5']:,.0f} to ${s['projected_facility_2031']['p95']:,.0f}"}]
+             {"metric": f"{s['checkpoint_year']} sponsor range (p5-p95 of value at start {s['checkpoint_year']} minus reserve)",
+              "value": f"${s['projected_facility_checkpoint']['p5']:,.0f} to ${s['projected_facility_checkpoint']['p95']:,.0f}"}]
     return pd.DataFrame(rows)
 
 
@@ -871,7 +875,7 @@ def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreemen
         f"volatility {port.stats['annual_volatility']:.1%}, max drawdown {port.stats['max_drawdown']:.1%}.",
         f"What is expected? Simulated median 2033 value: Monte Carlo ${mc_sum['median_terminal']:,.0f}, "
         f"bootstrap ${bs_sum['median_terminal']:,.0f}, Markov ${mk_sum['median_terminal']:,.0f} "
-        f"(from $450,000 invested 2027-2028). These are model estimates, not guarantees.",
+        f"(from ${ctx.schedule.total_contributions:,.0f} contributed per the case schedule). These are model estimates, not guarantees.",
         f"What could go wrong? 5th-percentile 2033 outcomes: MC ${mc_sum['terminal_percentiles']['p5']:,.0f}, "
         f"bootstrap ${bs_sum['terminal_percentiles']['p5']:,.0f}. CVaR95 (bootstrap terminal): {bs_sum['mc_cvar_95']:.0%}.",
         f"Biggest concentration: correlated group Growth/Consumer-Tech (ADBE+DIS+DUOL) at "
@@ -881,7 +885,7 @@ def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreemen
                                             if any("Material" in str(f) for f in disagreement_df.to_dict("records"))
                                             else "Monte Carlo and historical bootstrap broadly agree."),
         "What should change? See Recommended Actions (prioritized): trim correlated-group overweight, size the 2033 reserve from bootstrap (heavier-tail) results, adopt the glide path.",
-        f"Reserve design: required reserve (PV of 10 x $50,000 payments 2033-2042 at {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
+        f"Reserve design: required reserve (PV of {len(ctx.schedule.payments)} x ${ctx.schedule.payment_amount:,.0f} payments {ctx.schedule.first_payment_year}-{ctx.schedule.last_payment_year} at a team-assumed {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
     ]
 
 
@@ -912,7 +916,7 @@ def _concentration_text(conc, holdings) -> str:
 
 
 def _mc_text(cfg, s, ctx, contrib) -> str:
-    return (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; P(all 10 reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
+    return (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > ${contrib:,.0f} invested) = {s['prob_terminal_gt_start']:.1%}; P(all {len(ctx.schedule.payments)} reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
 
 
 def _markov_text(mk, s) -> str:
@@ -927,7 +931,7 @@ def _markov_text(mk, s) -> str:
 def _bs_text(cfg, s, ctx, contrib) -> str:
     return (f"Historical bootstrap ({cfg['bootstrap']['method']} bootstrap, {cfg['bootstrap']['block_size_days']}-trading-day blocks "
             f"of real 2000-2025 joint daily returns, {cfg['bootstrap']['n_simulations']:,} sims). "
-            f"Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; "
+            f"Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > ${contrib:,.0f} invested) = {s['prob_terminal_gt_start']:.1%}; "
             f"P(all payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. "
             f"This engine answers: what if the portfolio lived through actual historical market sequences?")
 
@@ -973,7 +977,7 @@ def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_fl
         ],
         "2033 Preparation (Priority 2-3)": [
             "Follow the linear glide path 70% -> 55% equity by 2033; impact table shows modest upside trade-off for materially lower drawdown risk.",
-            "Report the 2031 sponsor range as a percentile band (p5-p95), not a point estimate.",
+            f"Report the {mc_sum['checkpoint_year']} sponsor range as a percentile band (p5-p95), not a point estimate.",
         ],
         "Watchlist (Priority 4)": [
             "DUOL history length and data confidence; revisit estimates as history accumulates.",
@@ -991,21 +995,25 @@ def _methodology(cfg) -> list[str]:
         "Expected returns/volatilities: spreadsheet assumptions where supplied; otherwise historical estimates with shrinkage. Covariance = historical correlations x assumed volatilities.",
         "Markov: 5-state regime model on annual portfolio returns; transition matrix, stationary distribution, within-state bootstrap simulation.",
         "Historical bootstrap: block bootstrap (20-trading-day blocks) of real joint daily returns compounded to monthly; no synthetic distributions.",
-        "Simulation timeline: $300k at 2027 start, $150k at 2028 start, glide path to 2033, reserve split at 2033, ten $50k payments 2033-2042.",
+        "Simulation timeline (case rules, year 0 = 2026): " + "; ".join(validated_schedule(cfg).describe()) + ".",
         "VaR/CVaR: historical, parametric (normal), and Monte Carlo variants at 95%/99%.",
-        "Success definitions: terminal > contributions; all reserve payments funded; terminal above inflation-adjusted capital floor.",
+        "Primary success criterion (the case): every operating payment funded with a high degree of certainty. "
+        "Facility contribution = portfolio value at the reserve set-up date minus the reserve. "
+        "Supplementary (informational, not case criteria): terminal > contributions; terminal above an inflation-adjusted capital floor.",
     ]
 
 
 def _assumptions(cfg, weights_source, total_contrib) -> list[str]:
     return [
-        f"Contributions: $300,000 at start of 2027 and $150,000 at start of 2028 (user-supplied schedule); total ${total_contrib:,}. No other contributions or withdrawals.",
-        f"Reserve: PV of ten $50,000 payments (2033-2042, start of year) discounted at {cfg['cashflows']['reserve_discount_rate']:.1%}.",
+        "Cash flows (all at the beginning of the year; validated against the case rules): "
+        + "; ".join(validated_schedule(cfg).describe()) + f". Net invested ${total_contrib:,.0f}.",
+        "Projection starts from the contributions only; gains/losses from the WInS trading period are excluded (case rule).",
+        f"Reserve sizing: PV of the operating payments at {cfg['cashflows']['reserve_discount_rate']:.1%} — a TEAM assumption, not a case rule.",
         f"Risk-free rate {cfg['risk']['risk_free_rate']:.1%}; cash earns the risk-free rate.",
-        f"Inflation base {cfg['risk']['inflation_base']:.1%} (scenarios 2-5% in sensitivity).",
+        f"Inflation base {cfg['risk']['inflation_base']:.1%} (scenarios 2-5% in sensitivity); applied to projections and facility-cost purchasing power only — the operating payments are fixed nominal $.",
         f"Weights {weights_source}; normalized to 100%.",
         f"Transaction costs {cfg['rebalancing']['transaction_cost']:.2%} of turnover (not zero).",
-        "Taxes excluded: no tax-lot information supplied.",
+        "Taxes excluded: the case says personal income and capital-gains taxes need not be modelled.",
         "Glide path: linear 70% -> 55% equity by 2033 (configurable).",
         "Random seed " + str(cfg["simulation"]["random_seed"]) + f"; {cfg['simulation']['n_simulations']:,} simulations per engine.",
     ]
