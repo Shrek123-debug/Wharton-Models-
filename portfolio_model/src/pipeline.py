@@ -16,6 +16,7 @@ from .config import PACKAGE_ROOT, load_config, resolve
 from .ingestion.ingest import ingest
 from .markov.markov import STATE_NAMES, markov_summary, run_markov
 from .market_data.fetch import align_price_frames, fetch_history
+from .cashflows.schedule import validated_schedule
 from .monte_carlo.mc import SimContext, month_index, required_reserve_pv, run_monte_carlo, summarize_simulation
 from .optimization.optimize import suggest_allocation
 from .portfolio.portfolio import EQUITY_CLASSES, benchmark_series, build_portfolio, sector_of
@@ -85,10 +86,11 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
     targets = build_glide_targets(gp["method"] if gp["enabled"] else "none", years,
                                   start_eq, gp["end_equity"], bd_w, csh_w, gp.get("custom_targets"))
 
-    contributions = {(c["year"] - start) * 12: c["amount"] for c in cf["contributions"]}
-    rp = cf["reserve_payments"]
-    reserve = required_reserve_pv(rp["amount"], rp["first_year"], rp["last_year"], cf["reserve_discount_rate"])
-    payment_months = [(y - start) * 12 for y in range(rp["first_year"], rp["last_year"] + 1)]
+    sched = validated_schedule(cfg)
+    contributions = sched.contribution_months
+    reserve = required_reserve_pv(sched.payment_amount, sched.first_payment_year, sched.last_payment_year,
+                                  cf["reserve_discount_rate"])
+    payment_months = sched.payment_months
 
     bond_w = holdings.loc[bond_idx, "weight"].values
     bond_blend = bond_w / bond_w.sum() if bond_w.sum() > 0 else np.ones(len(bond_idx)) / max(len(bond_idx), 1)
@@ -107,9 +109,10 @@ def build_context(cfg: dict, holdings: pd.DataFrame, port) -> SimContext:
         band = reb.get("relative_band", 0.25)
 
     return SimContext(start, glide_end, reserve_end, equity_idx, bond_idx, cash_idx,
-                      targets, contributions, reserve, payment_months, rp["amount"],
+                      targets, contributions, reserve, payment_months, sched.payment_amount,
                       band, band_mode, reb["transaction_cost"], cfg["risk"]["inflation_base"],
-                      bond_blend, class_base), targets
+                      bond_blend, class_base, withdrawals=sched.withdrawal_months,
+                      checkpoint_year=sched.checkpoint_year, schedule=sched), targets
 
 
 # ---------------------------------------------------------------- expected params
@@ -173,6 +176,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
             cfg["bootstrap"]["n_simulations"] = overrides["sims"]
         if "seed" in overrides:
             cfg["simulation"]["random_seed"] = overrides["seed"]
+    sched = validated_schedule(cfg)   # refuse to run on cash flows the case does not allow
     input_path = input_path or resolve(cfg["input"]["spreadsheet"])
     out_dir = Path(out_dir) if out_dir else PACKAGE_ROOT / "outputs"
     fig_dir = out_dir / "figures"
@@ -232,7 +236,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
     # 15-20. engines
     params, param_table = build_return_params(cfg, holdings, port, rf)
     ctx, glide_targets = build_context(cfg, holdings, port)
-    total_contrib = sum(c["amount"] for c in cfg["cashflows"]["contributions"])
+    total_contrib = sched.net_invested   # contributions less any pre-reserve withdrawals
 
     mc_model = cfg["simulation"]["model"]
     mc = run_monte_carlo(params, ctx, cfg["simulation"]["n_simulations"], cfg["simulation"]["random_seed"],
@@ -408,8 +412,8 @@ def run(input_path: str | None = None, config_path: str | None = None,
     # assemble sheets
     holdings_sheet = _holdings_sheet(holdings, port, params, var_table, clusters, confidence, attr)
     history_sheet = _history_sheet(port, benchmarks)
-    mc_sheet = _sim_sheet(mc, total_contrib)
-    bs_sheet = _sim_sheet(bs, total_contrib)
+    mc_sheet = _sim_sheet(mc, total_contrib, cfg["simulation"]["glide_end_year"] - cfg["simulation"]["start_year"])
+    bs_sheet = _sim_sheet(bs, total_contrib, cfg["simulation"]["glide_end_year"] - cfg["simulation"]["start_year"])
     risk_sheet = _risk_sheet(port, var_table, mc_sum, bs_sum, conc, dd_dist, sec_corr)
     extra = []
     for infl in cfg["risk"]["inflation_scenarios"]:
@@ -452,7 +456,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
 
     var95 = var_table[var_table.confidence == 0.95].iloc[0]
     dashboard = [
-        ("Invested Capital (2027-28)", float(total_contrib), "#,##0"),
+        (f"Invested Capital ({sched.contributions[0].year}-{str(sched.contributions[-1].year)[2:]})", float(total_contrib), "#,##0"),
         ("Expected CAGR (MC)", mc_sum["cagr_money_weighted"], "0.0%"),
         ("Historical CAGR", port.stats["cagr_historical"], "0.0%"),
         ("Volatility (hist, annual)", port.stats["annual_volatility"], "0.0%"),
@@ -487,7 +491,7 @@ def run(input_path: str | None = None, config_path: str | None = None,
         "var_table": var_table, "dd_dist": dd_dist, "clusters": clusters,
         "confidence": confidence, "figures": figs, "opt": opt,
         "exec_summary": exec_lines,
-        "overview_text": f"{len(holdings)} holdings; total invested contributions ${total_contrib:,} (2027-2028); "
+        "overview_text": f"{len(holdings)} holdings; net invested capital ${total_contrib:,.0f} ({sched.contributions[0].year}-{sched.contributions[-1].year} contributions); "
                          f"weights {val.weights_source}; equity {cur_cls['Equity']:.0%}, bonds {cur_cls['Bonds']:.0%}, cash {cur_cls['Cash']:.0%}.",
         "historical_text": _historical_text(port, benchmarks),
         "risk_text": "VaR/CVaR are one-month horizon figures unless labeled terminal; historical, parametric, and Monte Carlo variants shown for comparison.",
@@ -607,7 +611,7 @@ def _history_sheet(port, benchmarks) -> pd.DataFrame:
     return df
 
 
-def _sim_sheet(res, total_contrib: float) -> pd.DataFrame:
+def _sim_sheet(res, total_contrib: float, years: int) -> pd.DataFrame:
     n = min(200, res["n_sims"])
     idx = np.linspace(0, res["n_sims"] - 1, n).astype(int)
     term = res["terminal_2033"][idx]
@@ -615,7 +619,7 @@ def _sim_sheet(res, total_contrib: float) -> pd.DataFrame:
     return pd.DataFrame({
         "simulation": idx + 1,
         "terminal_value": term,
-        "cagr": (term / total_contrib) ** (1 / 6) - 1,
+        "cagr": (term / total_contrib) ** (1 / years) - 1,
         "max_drawdown": res["max_drawdown_growth"][idx],
         "min_value": paths.min(axis=1),
         "success": res["all_payments_funded"][idx].astype(int),
@@ -626,8 +630,8 @@ def _percentile_frame(s) -> pd.DataFrame:
     rows = [{"metric": f"Terminal {k}", "value": v} for k, v in s["terminal_percentiles"].items()]
     rows += [{"metric": f"Facility contribution {k}", "value": v} for k, v in s["facility_percentiles"].items()]
     rows += [{"metric": "Median facility contribution", "value": s["median_facility"]},
-             {"metric": "2031 sponsor range (p5-p95 of value at start 2031 minus reserve)",
-              "value": f"${s['projected_facility_2031']['p5']:,.0f} to ${s['projected_facility_2031']['p95']:,.0f}"}]
+             {"metric": f"{s['checkpoint_year']} sponsor range (p5-p95 of value at start {s['checkpoint_year']} minus reserve)",
+              "value": f"${s['projected_facility_checkpoint']['p5']:,.0f} to ${s['projected_facility_checkpoint']['p95']:,.0f}"}]
     return pd.DataFrame(rows)
 
 
@@ -723,7 +727,7 @@ def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreemen
         f"volatility {port.stats['annual_volatility']:.1%}, max drawdown {port.stats['max_drawdown']:.1%}.",
         f"What is expected? Simulated median 2033 value: Monte Carlo ${mc_sum['median_terminal']:,.0f}, "
         f"bootstrap ${bs_sum['median_terminal']:,.0f}, Markov ${mk_sum['median_terminal']:,.0f} "
-        f"(from $450,000 invested 2027-2028). These are model estimates, not guarantees.",
+        f"(from ${ctx.schedule.total_contributions:,.0f} contributed per the case schedule). These are model estimates, not guarantees.",
         f"What could go wrong? 5th-percentile 2033 outcomes: MC ${mc_sum['terminal_percentiles']['p5']:,.0f}, "
         f"bootstrap ${bs_sum['terminal_percentiles']['p5']:,.0f}. CVaR95 (bootstrap terminal): {bs_sum['mc_cvar_95']:.0%}.",
         f"Biggest concentration: correlated group Growth/Consumer-Tech (ADBE+DIS+DUOL) at "
@@ -733,7 +737,7 @@ def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreemen
                                             if any("Material" in str(f) for f in disagreement_df.to_dict("records"))
                                             else "Monte Carlo and historical bootstrap broadly agree."),
         "What should change? See Recommended Actions (prioritized): trim correlated-group overweight, size the 2033 reserve from bootstrap (heavier-tail) results, adopt the glide path.",
-        f"Reserve design: required reserve (PV of 10 x $50,000 payments 2033-2042 at {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
+        f"Reserve design: required reserve (PV of {len(ctx.schedule.payments)} x ${ctx.schedule.payment_amount:,.0f} payments {ctx.schedule.first_payment_year}-{ctx.schedule.last_payment_year} at a team-assumed {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
     ]
     return lines
 
@@ -765,314 +769,7 @@ def _concentration_text(conc, holdings) -> str:
 
 
 def _mc_text(cfg, s, ctx, contrib) -> str:
-    return (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; P(all 10 reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
-
-
-def _markov_text(mk, s) -> str:
-    return (f"Markov regime model on annual portfolio returns (states: {', '.join(STATE_NAMES)}). "
-            f"Current state: {mk['current_state']}. P(bear next year) {mk['prob_bear_next']:.1%}; "
-            f"P(bear at any point 2027-2032) {mk['bear_ever_prob']:.1%}. Stationary distribution: "
-            + ", ".join(f"{s_}={p:.2f}" for s_, p in zip(STATE_NAMES, mk["stationary"])) + ". "
-            f"Limitations: Markov memoryless assumption, state discretization, dependence on historical transition "
-            f"frequencies, non-stationarity, structural market change — not a deterministic forecast.")
-
-
-def _bs_text(cfg, s, ctx, contrib) -> str:
-    return (f"Historical bootstrap ({cfg['bootstrap']['method']} bootstrap, {cfg['bootstrap']['block_size_days']}-trading-day blocks "
-            f"of real 2000-2025 joint daily returns, {cfg['bootstrap']['n_simulations']:,} sims). "
-            f"Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; "
-            f"P(all payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. "
-            f"This engine answers: what if the portfolio lived through actual historical market sequences?")
-
-
-def _disagreement_text(df) -> str:
-    if "Material" in df["flag"].astype(str).str.cat():
-        return ("MATERIAL MODEL DISAGREEMENT between engines. The portfolio's apparent robustness depends on "
-                "modeling assumptions; plan against the more conservative engine.")
-    return "Engines broadly agree on central outcomes; residual differences reflect tail-shape assumptions (Gaussian vs real historical sequences)."
-
-
-def _sensitivity_text(interp) -> str:
-    mr = interp.get("min_return_for_success")
-    fv = interp.get("fragile_vol_threshold")
-    return (f"Base case success {interp['base_case'].get('prob_success', float('nan')):.1%}. "
-            + (f"Minimum return shift for >=90% success: {mr:+.0%}. " if mr is not None else "No return shift reaches 90% success across the grid. ")
-            + (f"Portfolio becomes materially fragile (success <75%) at volatility >= {fv:.2f}x." if fv is not None else "Portfolio remains robust across the tested volatility range."))
-
-
-def _key_risks(cfg, holdings, mc_sum, bs_sum, conc, corr_flags, confidence) -> list[str]:
-    risks = [
-        f"Correlated Growth/Consumer-Tech group concentration ({holdings[holdings['correlation_group'] == 'Growth/Consumer-Tech']['weight'].sum():.0%} vs 30% cap).",
-        f"DUOL has short history (since 2021) — statistics low-confidence; {confidence.get('DUOL', 'Low')} confidence estimates.",
-        f"Tail risk: bootstrap CVaR95 {bs_sum['mc_cvar_95']:.0%} vs Gaussian MC {mc_sum['mc_cvar_95']:.0%} — real history has fatter tails than the parametric model.",
-        f"Reserve funding risk: P(all 10 payments funded) = {mc_sum['prob_all_payments_funded']:.1%} (MC) / {bs_sum['prob_all_payments_funded']:.1%} (bootstrap).",
-        "Survivorship bias: historical analysis reflects only surviving current holdings.",
-    ]
-    if corr_flags:
-        risks.append(f"{len(corr_flags)} high-correlation pairs (>0.70) reduce effective diversification.")
-    return risks
-
-
-def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_flags, disagreement_df, confidence, glide_variants) -> dict:
-    group_w = holdings[holdings["correlation_group"] == "Growth/Consumer-Tech"]["weight"].sum()
-    recs = {
-        "Immediate (Priority 1-2)": [
-            f"Trim the Growth/Consumer-Tech correlated group from {group_w:.0%} toward the 30% cap (e.g., reduce DUOL/ADBE) — model identifies a cap breach; investor should weigh tax and conviction before acting.",
-            f"Size the 2033 reserve using the bootstrap (heavier-tail) distribution, not the Gaussian MC: bootstrap P(funded) = {bs_sum['prob_all_payments_funded']:.1%}.",
-        ],
-        "Medium-Term (Priority 3)": [
-            "Add a defensive sleeve (Health Care / Consumer Staples / Utilities) or broad-market value exposure to reduce sector concentration in the equity bucket.",
-            f"Adopt 5pp rebalancing bands with {cfg['rebalancing']['transaction_cost']:.2%} cost budget; simulated mean turnover ${mc_sum['mean_turnover']:,.0f} per path.",
-        ],
-        "2033 Preparation (Priority 2-3)": [
-            "Follow the linear glide path 70% -> 55% equity by 2033; impact table shows modest upside trade-off for materially lower drawdown risk.",
-            "Report the 2031 sponsor range as a percentile band (p5-p95), not a point estimate.",
-        ],
-        "Watchlist (Priority 4)": [
-            "DUOL history length and data confidence; revisit estimates as history accumulates.",
-            "Model disagreement between engines — rerun quarterly and widen reserve if disagreement grows.",
-            "Correlation clusters during stress periods (correlations rise in crises).",
-        ],
-    }
-    return recs
-
-
-def _methodology(cfg) -> list[str]:
-    return [
-        "Prices: dividend/split-adjusted daily closes (Yahoo Finance via yfinance), 2000-01-01 to latest available; total-return basis.",
-        "Portfolio history: current weights held constant, rebalanced monthly (rebalanced-index convention).",
-        "Monte Carlo: multivariate correlated monthly returns via Cholesky decomposition of covariance; gaussian/lognormal/student-t/historical-residual models selectable.",
-        "Expected returns/volatilities: spreadsheet assumptions where supplied; otherwise historical estimates with shrinkage. Covariance = historical correlations x assumed volatilities.",
-        "Markov: 5-state regime model on annual portfolio returns; transition matrix, stationary distribution, within-state bootstrap simulation.",
-        "Historical bootstrap: block bootstrap (20-trading-day blocks) of real joint daily returns compounded to monthly; no synthetic distributions.",
-        "Simulation timeline: $300k at 2027 start, $150k at 2028 start, glide path to 2033, reserve split at 2033, ten $50k payments 2033-2042.",
-        "VaR/CVaR: historical, parametric (normal), and Monte Carlo variants at 95%/99%.",
-        "Success definitions: terminal > contributions; all reserve payments funded; terminal above inflation-adjusted capital floor.",
-    ]
-
-
-def _assumptions(cfg, weights_source, total_contrib) -> list[str]:
-    return [
-        f"Contributions: $300,000 at start of 2027 and $150,000 at start of 2028 (user-supplied schedule); total ${total_contrib:,}. No other contributions or withdrawals.",
-        f"Reserve: PV of ten $50,000 payments (2033-2042, start of year) discounted at {cfg['cashflows']['reserve_discount_rate']:.1%}.",
-        f"Risk-free rate {cfg['risk']['risk_free_rate']:.1%}; cash earns the risk-free rate.",
-        f"Inflation base {cfg['risk']['inflation_base']:.1%} (scenarios 2-5% in sensitivity).",
-        f"Weights {weights_source}; normalized to 100%.",
-        f"Transaction costs {cfg['rebalancing']['transaction_cost']:.2%} of turnover (not zero).",
-        "Taxes excluded: no tax-lot information supplied.",
-        "Glide path: linear 70% -> 55% equity by 2033 (configurable).",
-        "Random seed " + str(cfg["simulation"]["random_seed"]) + f"; {cfg['simulation']['n_simulations']:,} simulations per engine.",
-    ]
-
-
-def _limitations(cfg, confidence, val) -> list[str]:
-    low = [t for t, c in confidence.items() if c == "Low"]
-    return [
-        "Survivorship bias: only current holdings are represented in history.",
-        "Look-ahead caution: current weights applied to full history is a convention, not a tradable backtest.",
-        f"Low-confidence histories: {', '.join(low) if low else 'none'}.",
-        "Yahoo Finance data may contain gaps/survivorship issues; corporate actions handled via adjusted prices only.",
-        "Markov model assumes memoryless regime transitions.",
-        "No tax-lot data: rebalancing tax impact not estimated.",
-        "Currency: all holdings assumed USD-denominated (no FX conversion applied).",
-    ]
-
-
-def _conclusions(mc_sum, bs_sum, mk_sum, conc, interp) -> dict:
-    return {
-        "What is working?": [
-            f"Both engines show median 2033 value above invested contributions (MC ${mc_sum['median_terminal']:,.0f}, bootstrap ${bs_sum['median_terminal']:,.0f}).",
-            "Bond + cash sleeve (~32.5%) provides a real buffer; glide path further de-risks into 2033.",
-        ],
-        "What is fragile?": [
-            f"Correlated tech/consumer-tech group concentration ({conc['top3']:.0%} in top 3 holdings).",
-            f"Bootstrap downside: p5 2033 value ${bs_sum['terminal_percentiles']['p5']:,.0f}; reserve funding probability {bs_sum['prob_all_payments_funded']:.1%}.",
-        ],
-        "What matters most?": [
-            "1. Equity expected return (sensitivity grid dominates outcomes).",
-            "2. Volatility regime (fragility threshold in sensitivity analysis).",
-            "3. Reserve discount rate and payment schedule.",
-            "4. Correlated-group sizing (largest controllable risk).",
-            "5. Glide-path aggressiveness into 2033.",
-        ],
-        "What should be changed?": [
-            "Trim correlated group to cap; size reserve from bootstrap percentiles; adopt glide path and bands.",
-        ],
-        "What should be monitored?": [
-            "Band breaches, drawdown vs 20% review trigger, model disagreement magnitude, DUOL data confidence.",
-        ],
-    }
-
-
-def _sector_narrative(sec_tbl, holdings) -> list[str]:
-    lines = []
-    for sector, row in sec_tbl.iterrows():
-        if row["weight"] <= 0:
-            continue
-        lines.append(f"{sector}: {row['weight']:.1%} of portfolio, {int(row['n_holdings'])} holding(s) ({row['holdings']}); "
-                     f"12m return {row['sector_return_12m']:.1%}, contribution {row['contribution_12m']:.2%}.")
-    return lines
-
-
-def _sim_sheet(res, total_contrib: float) -> pd.DataFrame:
-    n = min(200, res["n_sims"])
-    idx = np.linspace(0, res["n_sims"] - 1, n).astype(int)
-    term = res["terminal_2033"][idx]
-    paths = res["portfolio_paths"][idx]
-    return pd.DataFrame({
-        "simulation": idx + 1,
-        "terminal_value": term,
-        "cagr": (term / total_contrib) ** (1 / 6) - 1,
-        "max_drawdown": res["max_drawdown_growth"][idx],
-        "min_value": paths.min(axis=1),
-        "success": res["all_payments_funded"][idx].astype(int),
-    })
-
-
-def _percentile_frame(s) -> pd.DataFrame:
-    rows = [{"metric": f"Terminal {k}", "value": v} for k, v in s["terminal_percentiles"].items()]
-    rows += [{"metric": f"Facility contribution {k}", "value": v} for k, v in s["facility_percentiles"].items()]
-    rows += [{"metric": "Median facility contribution", "value": s["median_facility"]},
-             {"metric": "2031 sponsor range (p5-p95 of value at start 2031 minus reserve)",
-              "value": f"${s['projected_facility_2031']['p5']:,.0f} to ${s['projected_facility_2031']['p95']:,.0f}"}]
-    return pd.DataFrame(rows)
-
-
-def _risk_sheet(port, var_table, mc_sum, bs_sum, conc, dd_dist, sec_corr) -> pd.DataFrame:
-    rows = [{"metric": f"{r['confidence']:.0%} {k}", "value": r[k]}
-            for _, r in var_table.iterrows() for k in ("historical_VaR", "historical_CVaR", "parametric_VaR", "parametric_CVaR")]
-    rows += [
-        {"metric": "Monte Carlo VaR 95% (terminal)", "value": mc_sum["mc_var_95"]},
-        {"metric": "Monte Carlo CVaR 95% (terminal)", "value": mc_sum["mc_cvar_95"]},
-        {"metric": "Bootstrap VaR 95% (terminal)", "value": bs_sum["mc_var_95"]},
-        {"metric": "Bootstrap CVaR 95% (terminal)", "value": bs_sum["mc_cvar_95"]},
-        {"metric": "Historical max drawdown", "value": port.stats["max_drawdown"]},
-        {"metric": "Sharpe (historical)", "value": port.stats["sharpe"]},
-        {"metric": "Sortino (historical)", "value": port.stats["sortino"]},
-        {"metric": "Downside deviation (annual)", "value": port.stats["downside_deviation"]},
-        {"metric": "HHI raw", "value": conc["hhi"]["raw"]},
-        {"metric": "HHI normalized", "value": conc["hhi"]["normalized"]},
-        {"metric": "Effective number of bets", "value": conc["hhi"]["effective_n"]},
-        {"metric": "MC max-drawdown median", "value": dd_dist["median"]},
-        {"metric": "MC max-drawdown 95th pct", "value": dd_dist["p95"]},
-        {"metric": "MC P(>20% drawdown)", "value": mc_sum["prob_dd_gt_20"]},
-        {"metric": "Bootstrap P(>20% drawdown)", "value": bs_sum["prob_dd_gt_20"]},
-    ]
-    return pd.DataFrame(rows)
-
-
-def _scorecard(cfg, holdings, mc_sum, bs_sum, conc, sec_tbl, confidence) -> pd.DataFrame:
-    n = len(holdings)
-    eff_n = conc["hhi"]["effective_n"]
-    divers = min(100, eff_n / max(n, 1) * 100)
-    conc_score = max(0, 100 * (1 - conc["hhi"]["normalized"]))
-    downside = 100 * (1 - mc_sum["prob_dd_gt_20"])
-    exp_ret = min(100, mc_sum["cagr_money_weighted"] / 0.10 * 100)
-    sec_w = sec_tbl["weight"]
-    sec_hhi = float((sec_w ** 2).sum())
-    sector_balance = max(0, 100 * (1 - sec_hhi))
-    tail = max(0, 100 * (1 - mc_sum["mc_cvar_95"] / 0.40))
-    glide = 100 if cfg["glide_path"]["enabled"] else 40
-    thesis = 100 * holdings["thesis"].apply(lambda x: isinstance(x, str) and len(x) > 10).mean()
-    reb = 100 if cfg["rebalancing"]["enabled"] else 30
-    rows = [
-        {"category": "Diversification", "score": divers},
-        {"category": "Concentration", "score": conc_score},
-        {"category": "Downside Protection", "score": downside},
-        {"category": "Expected Return", "score": exp_ret},
-        {"category": "Sector Balance", "score": sector_balance},
-        {"category": "Tail Risk", "score": tail},
-        {"category": "Glide Path", "score": glide},
-        {"category": "Thesis Quality", "score": thesis},
-        {"category": "Rebalancing Discipline", "score": reb},
-        {"category": "Overall", "score": np.mean([divers, conc_score, downside, exp_ret, sector_balance, tail, glide, thesis, reb])},
-    ]
-    df = pd.DataFrame(rows)
-    df["methodology_note"] = "Heuristic 0-100 scores; documented formulas; not a scientific objective measure."
-    return df
-
-
-def _decision_matrix(cfg, holdings, mc_sum, bs_sum, conc, disagreement_df) -> pd.DataFrame:
-    material = any("Material" in str(f.get("flag", "")) for f in disagreement_df.to_dict("records"))
-    rows = [
-        {"area": "Allocation", "status": "70/17.5/12.5 equity/bond/cash", "risk": "Moderate",
-         "evidence": "Within stated bucket targets", "action": "Maintain; monitor bands", "priority": "P4 Monitor"},
-        {"area": "Concentration", "status": f"Largest {conc['largest'][0]} {conc['largest'][1]:.0%}", "risk": "Elevated",
-         "evidence": f"Correlated group exceeds 30% cap; HHI {conc['hhi']['raw']:.2f}",
-         "action": "Trim Growth/Consumer-Tech group toward cap", "priority": "P2 High"},
-        {"area": "Sector Exposure", "status": "Tech-heavy equity sleeve", "risk": "Elevated",
-         "evidence": "ADBE+DUOL in Information Technology; DIS Communication Services",
-         "action": "Consider adding defensive sleeve", "priority": "P3 Moderate"},
-        {"area": "Tail Risk", "status": f"CVaR95 {mc_sum['mc_cvar_95']:.0%} (MC terminal)", "risk": "Material",
-         "evidence": "Bootstrap tail heavier than Gaussian MC", "action": "Size reserve conservatively", "priority": "P2 High"},
-        {"area": "Glide Path", "status": "70% -> 55% equity by 2033", "risk": "Low",
-         "evidence": "Glide impact table", "action": "Adopt linear glide; review annually", "priority": "P3 Moderate"},
-        {"area": "Rebalancing", "status": "5pp bands configured", "risk": "Low",
-         "evidence": "Rebalancing sheet triggers", "action": "Rebalance on band breach only", "priority": "P4 Monitor"},
-        {"area": "Investment Thesis", "status": "All holdings have theses", "risk": "Low",
-         "evidence": "Theses from input spreadsheet", "action": "Refresh annually", "priority": "P4 Monitor"},
-        {"area": "Monte Carlo", "status": f"Success {mc_sum['prob_terminal_gt_start']:.0%}", "risk": "Model-dependent",
-         "evidence": "Gaussian assumptions", "action": "Treat as optimistic bound", "priority": "P4 Monitor"},
-        {"area": "Historical Bootstrap", "status": f"Success {bs_sum['prob_terminal_gt_start']:.0%}", "risk": "Model-dependent",
-         "evidence": "Real 2000-2025 sequences", "action": "Treat as realistic bound", "priority": "P3 Moderate"},
-        {"area": "Model Agreement", "status": "Material disagreement" if material else "Broad agreement",
-         "risk": "Key uncertainty" if material else "Low",
-         "evidence": "Comparison sheet", "action": "Report range, not point estimate", "priority": "P1 Critical" if material else "P4 Monitor"},
-    ]
-    return pd.DataFrame(rows)
-
-
-def _exec_summary(cfg, holdings, port, mc_sum, bs_sum, mk_sum, conc, disagreement_df, ctx) -> list[str]:
-    lines = [
-        f"Where are we now? {len(holdings)} holdings; equity {holdings[holdings['asset_class'].isin(EQUITY_CLASSES)]['weight'].sum():.0%}, "
-        f"bonds {holdings[holdings['asset_class'].isin(['Treasury', 'Corporate Bond'])]['weight'].sum():.0%}, "
-        f"cash {holdings[holdings['asset_class'] == 'Cash']['weight'].sum():.0%}. Historical CAGR {port.stats['cagr_historical']:.1%}, "
-        f"volatility {port.stats['annual_volatility']:.1%}, max drawdown {port.stats['max_drawdown']:.1%}.",
-        f"What is expected? Simulated median 2033 value: Monte Carlo ${mc_sum['median_terminal']:,.0f}, "
-        f"bootstrap ${bs_sum['median_terminal']:,.0f}, Markov ${mk_sum['median_terminal']:,.0f} "
-        f"(from $450,000 invested 2027-2028). These are model estimates, not guarantees.",
-        f"What could go wrong? 5th-percentile 2033 outcomes: MC ${mc_sum['terminal_percentiles']['p5']:,.0f}, "
-        f"bootstrap ${bs_sum['terminal_percentiles']['p5']:,.0f}. CVaR95 (bootstrap terminal): {bs_sum['mc_cvar_95']:.0%}.",
-        f"Biggest concentration: correlated group Growth/Consumer-Tech (ADBE+DIS+DUOL) at "
-        f"{holdings[holdings['correlation_group'] == 'Growth/Consumer-Tech']['weight'].sum():.0%} vs 30% cap; "
-        f"largest single holding {conc['largest'][0]} at {conc['largest'][1]:.0%}.",
-        f"Biggest modeling uncertainty: " + ("MATERIAL disagreement between Monte Carlo and historical bootstrap — see Model Comparison."
-                                            if any("Material" in str(f) for f in disagreement_df.to_dict("records"))
-                                            else "Monte Carlo and historical bootstrap broadly agree."),
-        "What should change? See Recommended Actions (prioritized): trim correlated-group overweight, size the 2033 reserve from bootstrap (heavier-tail) results, adopt the glide path.",
-        f"Reserve design: required reserve (PV of 10 x $50,000 payments 2033-2042 at {cfg['cashflows']['reserve_discount_rate']:.1%}) = ${ctx.required_reserve:,.0f}.",
-    ]
-    return lines
-
-
-def _historical_text(port, benchmarks) -> str:
-    s = port.stats
-    return (f"Portfolio history spans {s['n_years']:.1f} years on current weights (rebalanced monthly, "
-            f"total-return basis). CAGR {s['cagr_historical']:.2%}, mean annual return {s['mean_annual_return']:.2%}, "
-            f"volatility {s['annual_volatility']:.2%}, Sharpe {s['sharpe']:.2f}, Sortino {s['sortino']:.2f}, "
-            f"max drawdown {s['max_drawdown']:.2%} (peak {s['drawdown_peak']}, trough {s['drawdown_trough']}, "
-            f"recovery {s['drawdown_recovery'] or 'not recovered'}). Survivorship bias applies: only current holdings are represented.")
-
-
-def _correlation_text(corr, flags, clusters) -> str:
-    if not flags:
-        return "No pairwise correlations exceed the configured threshold."
-    pairs = ", ".join(f"{f['a']}-{f['b']} ({f['correlation']:.2f})" for f in flags[:8])
-    return (f"{len(flags)} pair(s) exceed the 0.70 threshold: {pairs}. "
-            f"Nominal diversification across {len(corr.columns)} tickers masks correlated exposures — "
-            f"number of securities is not the number of independent risk bets.")
-
-
-def _concentration_text(conc, holdings) -> str:
-    grp = holdings.groupby("correlation_group")["weight"].sum()
-    grp_txt = "; ".join(f"{g}: {w:.0%}" for g, w in grp.items() if isinstance(g, str))
-    return (f"Largest position {conc['largest'][0]} at {conc['largest'][1]:.1%}; top-3 {conc['top3']:.1%}; "
-            f"HHI {conc['hhi']['raw']:.3f} (effective bets {conc['hhi']['effective_n']:.1f} of {conc['hhi']['n_holdings']} holdings). "
-            f"Correlation groups: {grp_txt}.")
-
-
-def _mc_text(cfg, s, ctx, contrib) -> str:
-    text = (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; P(all 10 reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
+    text = (f"Monte Carlo ({cfg['simulation']['model']}, {cfg['simulation']['n_simulations']:,} sims, seed {cfg['simulation']['random_seed']}, monthly steps, correlated multivariate returns, glide path + 5pp bands + {cfg['rebalancing']['transaction_cost']:.2%} transaction cost). Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > ${contrib:,.0f} invested) = {s['prob_terminal_gt_start']:.1%}; P(all {len(ctx.schedule.payments)} reserve payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. Required reserve ${ctx.required_reserve:,.0f}; median facility contribution ${s['median_facility']:,.0f}.")
     return text
 
 
@@ -1088,7 +785,7 @@ def _markov_text(mk, s) -> str:
 def _bs_text(cfg, s, ctx, contrib) -> str:
     return (f"Historical bootstrap ({cfg['bootstrap']['method']} bootstrap, {cfg['bootstrap']['block_size_days']}-trading-day blocks "
             f"of real 2000-2025 joint daily returns, {cfg['bootstrap']['n_simulations']:,} sims). "
-            f"Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > $450k) = {s['prob_terminal_gt_start']:.1%}; "
+            f"Median 2033 value ${s['median_terminal']:,.0f}; P(terminal > ${contrib:,.0f} invested) = {s['prob_terminal_gt_start']:.1%}; "
             f"P(all payments funded) = {s['prob_all_payments_funded']:.1%}; P(>20% drawdown) = {s['prob_dd_gt_20']:.1%}. "
             f"This engine answers: what if the portfolio lived through actual historical market sequences?")
 
@@ -1134,7 +831,7 @@ def _recommendations(cfg, holdings, flags, mc_sum, bs_sum, mk_sum, conc, corr_fl
         ],
         "2033 Preparation (Priority 2-3)": [
             "Follow the linear glide path 70% -> 55% equity by 2033; impact table shows modest upside trade-off for materially lower drawdown risk.",
-            "Report the 2031 sponsor range as a percentile band (p5-p95), not a point estimate.",
+            f"Report the {mc_sum['checkpoint_year']} sponsor range as a percentile band (p5-p95), not a point estimate.",
         ],
         "Watchlist (Priority 4)": [
             "DUOL history length and data confidence; revisit estimates as history accumulates.",
@@ -1153,21 +850,25 @@ def _methodology(cfg) -> list[str]:
         "Expected returns/volatilities: spreadsheet assumptions where supplied; otherwise historical estimates with shrinkage. Covariance = historical correlations x assumed volatilities.",
         "Markov: 5-state regime model on annual portfolio returns; transition matrix, stationary distribution, within-state bootstrap simulation.",
         "Historical bootstrap: block bootstrap (20-trading-day blocks) of real joint daily returns compounded to monthly; no synthetic distributions.",
-        "Simulation timeline: $300k at 2027 start, $150k at 2028 start, glide path to 2033, reserve split at 2033, ten $50k payments 2033-2042.",
+        "Simulation timeline (case rules, year 0 = 2026): " + "; ".join(validated_schedule(cfg).describe()) + ".",
         "VaR/CVaR: historical, parametric (normal), and Monte Carlo variants at 95%/99%.",
-        "Success definitions: terminal > contributions; all reserve payments funded; terminal above inflation-adjusted capital floor.",
+        "Primary success criterion (the case): every operating payment funded with a high degree of certainty. "
+        "Facility contribution = portfolio value at the reserve set-up date minus the reserve. "
+        "Supplementary (informational, not case criteria): terminal > contributions; terminal above an inflation-adjusted capital floor.",
     ]
 
 
 def _assumptions(cfg, weights_source, total_contrib) -> list[str]:
     return [
-        f"Contributions: $300,000 at start of 2027 and $150,000 at start of 2028 (user-supplied schedule); total ${total_contrib:,}. No other contributions or withdrawals.",
-        f"Reserve: PV of ten $50,000 payments (2033-2042, start of year) discounted at {cfg['cashflows']['reserve_discount_rate']:.1%}.",
+        "Cash flows (all at the beginning of the year; validated against the case rules): "
+        + "; ".join(validated_schedule(cfg).describe()) + f". Net invested ${total_contrib:,.0f}.",
+        "Projection starts from the contributions only; gains/losses from the WInS trading period are excluded (case rule).",
+        f"Reserve sizing: PV of the operating payments at {cfg['cashflows']['reserve_discount_rate']:.1%} — a TEAM assumption, not a case rule.",
         f"Risk-free rate {cfg['risk']['risk_free_rate']:.1%}; cash earns the risk-free rate.",
-        f"Inflation base {cfg['risk']['inflation_base']:.1%} (scenarios 2-5% in sensitivity).",
+        f"Inflation base {cfg['risk']['inflation_base']:.1%} (scenarios 2-5% in sensitivity); applied to projections and facility-cost purchasing power only — the operating payments are fixed nominal $.",
         f"Weights {weights_source}; normalized to 100%.",
         f"Transaction costs {cfg['rebalancing']['transaction_cost']:.2%} of turnover (not zero).",
-        "Taxes excluded: no tax-lot information supplied.",
+        "Taxes excluded: the case says personal income and capital-gains taxes need not be modelled.",
         "Glide path: linear 70% -> 55% equity by 2033 (configurable).",
         "Random seed " + str(cfg["simulation"]["random_seed"]) + f"; {cfg['simulation']['n_simulations']:,} simulations per engine.",
     ]
